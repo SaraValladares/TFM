@@ -1,0 +1,877 @@
+---
+title: "WGCNA2"
+author: "Sara Valladares"
+format: html
+editor: visual
+---
+
+## WGCNA
+
+WGCNA construye una red de co-expresión en la que genes con patrones de expresión similares son agrupados en módulos.
+
+### Librerías
+
+```{r Load Packages, include=FALSE, echo=FALSE}
+library(WGCNA)
+library(flashClust)
+enableWGCNAThreads(2)
+memory.limit(8000)
+
+library("biomaRt")
+library("clusterProfiler")
+library("tidyverse")
+library("enrichplot")
+library ("AnnotationHub")
+library(UpSetR)
+```
+
+## Subir los datos
+
+Indicamos cual es el directorio de trabajo que es en el que se encuentran nuestros datos
+
+Leemos el archivo que vamos a usar en este análisis. Se trata de un archivo de counts normalizadas de los genes de A. thaliana que están diferencialmente expresados en las distintas muestras.
+
+```{r}
+setwd("C:/Users/Sara/Desktop/Datos experimento/WGCNA/")
+
+time=read.csv("normalized_counts_df_filt_3.csv")
+```
+
+## Ajustamos el formato para WGCNA
+
+```{r}
+time=as.data.frame(time)
+rownames(time)=time$Gene
+time$Gene=NULL
+datExpr= as.data.frame(t(time[,]))
+names(datExpr)= row.names(time)
+rownames(datExpr)=names(time)
+dim(datExpr) # Vemos que nuestras dimensiones coincidan con nuestro experimento
+```
+
+### Comprobar los outliers
+
+```{r}
+gsg=goodSamplesGenes(datExpr, verbose = 3)
+
+gsg$allOK 
+```
+
+```{r}
+# Si en el anterior paso obtenemos TRUE es que todos nuestros genes han pasado el corte. Si no fuera así, con el siguiente código se retiran los genes que dan error.
+if (!gsg$allOK) 
+{if (sum(!gsg$goodGenes)>0)
+printFlush(paste("Removing genes:", paste(names(datExpr)[!gsg$goodGenes], collapse= ", ")));
+if (sum(!gsg$goodSamples)>0)
+printFlush(paste("Removing samples:", paste(rownames(datExpr)[!gsg$goodSamples], collapse=", ")))
+datExpr= datExpr[gsg$goodSamples, gsg$goodGenes] }
+```
+
+## Subimos los metadatos del experimento
+
+```{r}
+datTraits= read.csv("Metadata_todo.csv")
+dim(datTraits) # comprobamos las dimensiones
+head(datTraits) 
+# Debemos obtener la respuesta de TRUE para saber que los metadatos que hemos aportado se alinean de manera correcta a los datos que hemos aportado anteriormente
+rownames(datTraits)=datTraits$Muestra
+datTraits$Muestra=NULL
+table(rownames(datTraits)==rownames(datExpr))
+```
+
+Pasamos nuestros parámetros de los metadatos a valores numéricos
+
+```{r}
+datTraits$Condition <- ifelse(datTraits$Condition == "Control", 0, 1)
+ 
+datTraits$Time <- ifelse(datTraits$Time == "IN", 0,
+                                   ifelse(datTraits$Time == "FC", 1,
+                                          ifelse(datTraits$Time == "FA", 2,
+                                                 ifelse(datTraits$Time == "FR", 3, NA))))
+
+```
+
+Sample network based on squared Euclidean distance note that we transpose the data
+
+```{r}
+ A = adjacency(t(datExpr), type = "distance")
+ # Calculamos toda la red de conexiones
+ k = as.numeric(apply(A, 2, sum))-1
+ # Estandarizamos esta red de conectividad
+ Z.k = scale(k)
+# Designamos que un valor es un outlayer si su valor z.k esta por debajo de un umbral dado. Normalmente este es de -2,5 pero se puede ajustar según lo estricto que se quiera ser.
+thresholdZ.k = -4
+outlierColor = ifelse(Z.k < thresholdZ.k, "red", "black") # Usamos un vector de color para indicar si se trata de un outlier -> Rojo
+ 
+# Generamos un dendrograma con las muestras 
+sampleTree = flashClust(as.dist(1 - A), method = "average")
+ 
+```
+
+## Convertimos los traits de los metadatos en una representación por color, según aumenta se vuelven más rojos.
+
+```{r}
+traitColors = data.frame(numbers2colors(datTraits, signed = FALSE)) 
+dimnames(traitColors)[[2]] = paste(names(datTraits), "C", sep = "")
+datColors = data.frame(outlierC = outlierColor, traitColors) 
+# Generamos una gráfica con el dendrograma de las muestras y los distintos traits indicados por color
+ plotDendroAndColors(sampleTree, groupLabels = names(datColors), colors = datColors, main = "Dendograma de las muestras y heatmap de las variables")
+```
+
+## Quitamos las muestras marcadas como outliers
+
+```{r}
+remove.samples = Z.k < thresholdZ.k | is.na(Z.k) 
+# the following 2 lines differ from what is written in the book 
+datExpr = datExpr[!remove.samples, ] 
+datTraits = datTraits[!remove.samples, ]
+ # Recompute the sample network among the remaining samples 
+A = adjacency(t(datExpr), type = "distance")
+ # Let's recompute the Z.k values of outlyingness 
+k = as.numeric(apply(A, 2, sum))-1
+ Z.k = scale(k)
+```
+
+## Topologia libre de escalas
+
+Para asegurar una topologia lire de escalas en la red tenemos que aplicar un soft-thresholding power (β) al calcular las correlaciones.
+
+Con la función pickSoftThreshold() podemos encontrar el valor de β optimo mirando: La independencia de escala (como de bien la red se adapta a una topologia libre de escalas) y la conectividad media (como de conectados están los genes en la red).
+
+```{r}
+# Choose a set of soft thresholding powers
+powers = c(1:20)  
+
+# in practice this should include powers up to 20. # choose power based on SFT criterion
+sft = pickSoftThreshold(datExpr, powerVector = powers)
+
+# Plot the results: 
+par(mfrow = c(1, 2))
+# SFT index as a function of different powers
+plot(sft$fitIndices[, 1], -sign(sft$fitIndices[, 3]) * sft$fitIndices[, 2],      xlab = "Soft Threshold (power)", ylab = "SFT, R^2", type = "n", main = paste("Independencia de escala"))
+ text(sft$fitIndices[, 1], -sign(sft$fitIndices[, 3]) * sft$fitIndices[, 2],      labels = powers, col = "red")
+ # this line corresponds to using an R^2 cut-off of h 
+abline(h = 0.8, col = "red") 
+
+# Mean connectivity as a function of different powers 
+plot(sft$fitIndices[, 1], sft$fitIndices[, 5], type = "n", xlab = "Soft Threshold (power)", 
+     ylab = "Conectividad media", main = paste("Conectividad media"))
+ text(sft$fitIndices[, 1], sft$fitIndices[, 5], labels = powers, col = "red")
+```
+
+Parámetros:
+
+Key Parameters Explained corType = "pearson" → Uses Pearson correlation to measure gene similarity. networkType = "signed hybrid" → Uses a signed network, where: Positive correlations (co-expressed genes) are kept. Negative correlations are ignored. power = 6 → Soft-thresholding power (from pickSoftThreshold()). minModuleSize = 30 → Minimum number of genes for a module. mergeCutHeight = mergingThresh → Threshold (0.2) for merging similar modules. numericLabels = TRUE → Modules are labeled as numbers instead of colors. saveTOMs = TRUE → Saves the Topological Overlap Matrix (TOM) for later use. pamRespectsDendro = FALSE → Allows genes to be reassigned to more appropriate modules.
+
+Nos quedamos con un poder optimo según las graficas anteriores
+
+## Separamos la red de datos en módulos
+
+```{r}
+set.seed(123)
+#allowWGCNAThreads(nThreads = 2)
+mergingThresh = 0.5 # Ajustamos este parametro para que sea más restrictivo a la hora de generar modulos
+net = blockwiseModules(datExpr, corType = "pearson", maxBlockSize = 4000, networkType = "signed hybrid", power = 9, minModuleSize = 30, mergeCutHeight = mergingThresh,      numericLabels = TRUE, saveTOMs = TRUE, pamRespectsDendro = FALSE, saveTOMFileBase = "allTOM")
+
+moduleLabelsAutomatic = net$colors # Asigna un color distinto a cada módulo
+```
+
+## MEs
+
+Cada módulo tiene un eigengen, que es el primer componente principal (PC1) de los genes en ese módulo. Representa el patrón general de expresión del módulo. Los MEs se utilizan para correlacionar los módulos con características.
+
+```{r}
+# Convertimos las etiquetas a colores para su representación gráfica
+ moduleColorsAutomatic = labels2colors(moduleLabelsAutomatic)
+# Un data frame con los eigengenes de los módulos se puede obtener asi
+MEsAutomatic = net$MEs 
+# Utilizamos el tiempo como un fenotipo a tener en cuenta
+ value = as.data.frame(datTraits$Time) 
+names(value) = "Time"
+# tambien tenemos en cuenta la variable condición
+ value2 = as.data.frame(datTraits$Condition) 
+names(value) = "Condition"
+```
+
+### A continuación, utiliza esta característica para definir una variable de significancia génica
+
+```{r}
+ GS.value = as.numeric(cor(datExpr, value, use = "p")) # Gene Significance (GS) mide qué tan fuertemente se correlaciona cada gen con la característica 'Tiempo'
+
+# Esto traduce los valores numericos a una escala de colores
+GS.valueColor = numbers2colors(GS.value, signed = T) # Valor de GS alto (correlacion fuerte) → Rojo oscuro (si es pisitivo), azul oscuro (si es negativo)
+
+ GS.value2 = as.numeric(cor(datExpr, value2, use = "p")) # Gene Significance (GS) mide como de fuerte esta correlacionado cada gen con la característica 'Condicion'
+
+# Traducimos los valores numericos a colores
+GS.value2Color = numbers2colors(GS.value2, signed = T) # Valor de GS alto (correlacion fuerte) → Rojo oscuro (si es pisitivo), azul oscuro (si es negativo)
+ 
+
+blocknumber = 1
+datColors = data.frame(moduleColorsAutomatic, GS.valueColor, GS.value2Color)[net$blockGenes[[blocknumber]],      ] 
+# Plot the dendrogram and the module colors underneath 
+plotDendroAndColors(net$dendrograms[[blocknumber]], colors = datColors, main = paste("Dendrograma de los módulos"), groupLabels = c("Module colours",      "GS.Tiempo", "GS.Condición"), dendroLabels = FALSE, hang = 0.03, addGuide = TRUE, guideHang = 0.05)
+
+```
+
+## Relaciones modulo-variable
+
+```{r}
+# Choose a module assignment
+ moduleColorsSt = moduleColorsAutomatic 
+# Definimos los numero de los genes y muestras
+nGenes = ncol(datExpr) 
+nSamples = nrow(datExpr)
+ # Recalculamos los MEs con escala de colores 
+MEs0 = moduleEigengenes(datExpr, moduleColorsSt)$eigengenes 
+MEsCE = orderMEs(MEs0)
+ modTraitCor = cor(MEsCE, datTraits, use = "p")
+ modTraitP = corPvalueStudent(modTraitCor, nSamples)
+ # Como tenemos un número moderadamente grande de módulos y características, una gráfica adecuada ayudará a leer la tabla. Codificamos por colores cada asociación según el valor de correlación: las correlaciones y sus p-values
+textMatrix = paste(signif(modTraitCor, 0.02), "\n(", signif(modTraitP, 0.02), ")",      sep = "")
+ dim(textMatrix) = dim(modTraitCor)
+ par(mar = c(6, 8.5, 3, 3)) 
+ # Vemos los valores y las correlaciones en un heatmap
+ labeledHeatmap(Matrix = modTraitCor, xLabels = names(datTraits), yLabels = names(MEsCE),      ySymbols = names(MEsCE), colorLabels = FALSE, colors = blueWhiteRed(50),      textMatrix = textMatrix, setStdMargins = FALSE, cex.text = 0.7, zlim = c(-1,          1), main = paste("Relaciones módulo-variable"))
+
+
+```
+
+## Relación del gen con la característica y los módulos importantes: Significancia génica y módulo.
+
+```{r}
+#calcular los valores de pertenencia al módulo (aka. conectividad basada en el eigengen del módulo, kME):
+
+ datKME = signedKME(datExpr, MEsCE)
+
+#Análisis intramodular: identificación de genes con alto GS y MM
+
+colorOfColumn = substring(names(datKME), 4)
+ par(mfrow = c(2, 2)) 
+selectModules = c("turquoise", "black", "blue", "red")
+ par(mfrow = c(2, length(selectModules)/2))
+  for (module in selectModules) {
+     column = match(module, colorOfColumn)
+     restModule = moduleColorsSt == module
+     verboseScatterplot(datKME[restModule, column], GS.value[restModule], xlab = paste("Module Membership ", 
+         module, "module"), ylab = "GS.value", main = paste("kME.", module,  
+        "vs. GS"), col = module)}
+
+```
+
+# Resultados
+
+```{r}
+# Leemos el archivo que contiene la anotación de todos los genes de A . thaliana diferencialmente expresados. 
+GeneAnnotation = read.csv(file.path("GeneAnnotation.csv"))
+GeneAnnotation = read.csv("zxc.csv") 
+
+# Nos quedamos con la descripción de los genes de nuestros módulos
+probes = names(datExpr)
+probes2annot = match(probes, GeneAnnotation$Gene)
+
+
+
+```
+
+```{r}
+datGS.Traits = data.frame(cor(datExpr, datTraits, use = "p")) 
+datP.Traits= paste (moduleColorsSt, modTraitP, sep = " ;")
+names(datGS.Traits) = paste("cor", names(datGS.Traits), sep = ".") 
+datOutput = data.frame(Probes= names(datExpr),  GeneAnnotation[probes2annot, ], moduleColorsSt,datP.Traits, datKME, datGS.Traits)
+
+
+ # Guardamos los resultados en un archivo CSV
+write.table(datOutput, "Results_general.csv", row.names = F, sep = ";")
+
+
+Genes=read.csv("Results_general.csv", sep = ';')
+# All_genes = read.csv("diff_ex_results.tsv")
+```
+
+datP.Traits: It contains p-values for the correlation between modules and traits. Helps determine which modules are significantly associated with traits.
+
+datKME (Module Membership, MM): Measures how strongly a gene is connected to its own module. Also called kME (eigengene-based connectivity). Higher kME → the gene is a hub gene (highly connected in the module).
+
+datGS.Traits (Gene Significance, GS): Measures how strongly a gene is correlated to a trait. High GS → the gene is important for the trait.
+
+```{r}
+# Separamos nuestros datos po módulos para hacer el GO ORA analysis
+
+genes_module_brown <- datOutput %>% filter(moduleColorsSt=="brown")
+genes_module_brown_list <- genes_module_brown %>% dplyr::select(Gene)
+
+genes_module_red <- datOutput %>% filter(moduleColorsSt=="red")
+genes_module_red_list <- genes_module_red %>% dplyr::select(Gene)
+
+genes_module_yellow <- datOutput %>% filter(moduleColorsSt=="yellow")
+genes_module_yellow_list <- genes_module_yellow %>% dplyr::select(Gene)
+
+genes_module_green <- datOutput %>% filter(moduleColorsSt=="green")
+genes_module_green_list <- genes_module_green %>% dplyr::select(Gene)
+
+genes_module_turquoise <- datOutput %>% filter(moduleColorsSt=="turquoise")
+genes_module_turquoise_list <- genes_module_turquoise %>% dplyr::select(Gene)
+
+genes_module_black <- datOutput %>% filter(moduleColorsSt=="black")
+genes_module_black_list <- genes_module_black %>% dplyr::select(Gene)
+
+genes_module_blue <- datOutput %>% filter(moduleColorsSt=="blue")
+genes_module_blue_list <- genes_module_blue %>% dplyr::select(Gene)
+
+genes_module_grey <- datOutput %>% filter(moduleColorsSt=="grey")
+genes_module_grey_list <- genes_module_grey %>% dplyr::select(Gene)
+
+```
+
+## GO Analisis de cada modulo
+
+```{r}
+hub <- AnnotationHub()
+
+query(hub, c("Arabidopsis thaliana", "orgdb"))
+
+a_thaliana <- hub [["AH116702"]]
+
+keytypes(a_thaliana)
+#keys(a_thaliana)
+columns(a_thaliana)
+
+```
+
+```{r}
+mart <- useMart(biomart="plants_mart", host="https://plants.ensembl.org")
+
+listdatasets <- listDatasets(mart)
+(listDatasets(mart))[grep("athaliana_eg_gene",listDatasets(mart)[,1]),]
+athaliana_mart <- useMart(biomart = "plants_mart", host = "https://plants.ensembl.org", dataset = "athaliana_eg_gene"	)
+listAttributes <- listAttributes(mart = athaliana_mart, page="feature_page")
+listAttributes
+ 
+# Construimos el universo
+
+attributes_to_retrieve = c("entrezgene_id", "external_gene_name", "name_1006", "go_id", "definition_1006")
+
+all_athaliana_genes <- biomartr::biomart(genes = datOutput$Probes, mart = "plants_mart",   dataset = "athaliana_eg_gene",  attributes = attributes_to_retrieve, filters =  "ensembl_gene_id" )  
+
+all_athaliana_genes$entrezgene_id = as.character(all_athaliana_genes$entrezgene_id) 
+
+attributes_annotation = c("description", "tair_symbol")
+
+resdata_annotation <- biomartr::biomart(genes = datOutput$Probes, mart = "plants_mart",   dataset = "athaliana_eg_gene",  attributes = attributes_annotation, filters =  "ensembl_gene_id" )  
+
+resdata_annotationClean <- resdata_annotation[!duplicated(resdata_annotation$ensembl_gene_id),]
+resdata_annotationClean
+
+write.table(datOutput, "genes_with_annotation_datOutput.csv",  sep = ';', row.names = FALSE)
+# resdata_with_annotation <- merge(datOutput,datOutput, by.x = "Probes", by.y= "ensembl_gene_id" )
+# 
+# write.table(resdata_with_annotation, file = "/genes_with_annotation.csv",  sep = ';', row.names = FALSE)
+# # 
+# # DT::datatable(resdata_with_annotation, class = 'cell-border stripe', editable = TRUE,extensions = 'Buttons', options = list(dom = 'Bfrtip', buttons = c('copy', 'csv', 'excel', 'pdf', 'print')), filter = "top", rownames = F)
+
+```
+
+### Módulo Rojo
+
+```{r}
+#Genes=read.csv("Results_general.csv", sep = ';')
+
+# retrieving NCBI Entrez gene id for our genes called differential
+module_athaliana_genes_annotated<- biomartr::biomart(genes = genes_module_red$Probes,                  # genes were retrieved using biomartr::getGenome()
+                                mart = "plants_mart",                     # marts were selected with biomartr::getMarts()
+                                dataset = "athaliana_eg_gene",               # datasets were selected with biomartr::getDatasets()
+                                attributes = attributes_to_retrieve,            # attributes were selected with biomartr::getAttributes()
+                                filters =   "ensembl_gene_id" )# query key
+head(module_athaliana_genes_annotated)  
+
+# performing the ORA for Gene Ontology Biological Process class
+ora_analysis_bp <- enrichGO(gene = module_athaliana_genes_annotated$entrezgene_id, 
+                            universe = GeneAnnotation$entrezgene_id, 
+                            OrgDb = a_thaliana,  # contains the TAIR/Ensembl id to GO correspondence for A. thaliana
+                            keyType = "ENTREZID",
+                            ont = "BP",              #  "BP", "CC" or "MF",
+                            pAdjustMethod = "BH",
+                            qvalueCutoff = 0.05,
+                            readable = TRUE, 
+                            pool = FALSE)
+
+ora_analysis_bp_simplify <- clusterProfiler::simplify(ora_analysis_bp, cutoff=0.6, by="p.adjust", select_fun=min)
+
+ora_analysis_bp_df_C1 <- ora_analysis_bp@result  %>% tibble::rownames_to_column("GO") %>% filter(p.adjust<=0.05)
+readr::write_csv(ora_analysis_bp_df_C1, "ora_analysis_athaliana_res_cluster_1_entrezid.csv")
+
+DT::datatable(ora_analysis_bp_df_C1, class = 'cell-border stripe', editable = TRUE,extensions = 'Buttons', options = list(dom = 'Bfrtip', buttons = c('copy', 'csv', 'excel', 'pdf', 'print')), filter = "top", rownames = F)
+
+barplot(ora_analysis_bp_simplify, 
+        drop = TRUE, 
+        showCategory = 10, 
+        title = "Procesos biológicos GO - Módulo Rojo",
+        font.size = 14)
+
+```
+
+### Módulo Negro
+
+```{r}
+#Genes=read.csv("Results_general.csv", sep = ';')
+
+# retrieving NCBI Entrez gene id for our genes called differential
+module_athaliana_genes_annotated<- biomartr::biomart(genes = genes_module_black$Probes,                  # genes were retrieved using biomartr::getGenome()
+                                mart = "plants_mart",                     # marts were selected with biomartr::getMarts()
+                                dataset = "athaliana_eg_gene",               # datasets were selected with biomartr::getDatasets()
+                                attributes = attributes_to_retrieve,            # attributes were selected with biomartr::getAttributes()
+                                filters =   "ensembl_gene_id" )# query key
+head(module_athaliana_genes_annotated)  
+
+# performing the ORA for Gene Ontology Biological Process class
+ora_analysis_bp <- enrichGO(gene = module_athaliana_genes_annotated$entrezgene_id, 
+                            universe = GeneAnnotation$entrezgene_id, 
+                            OrgDb = a_thaliana,  # contains the TAIR/Ensembl id to GO correspondence for A. thaliana
+                            keyType = "ENTREZID",
+                            ont = "BP",              #  "BP", "CC" or "MF",
+                            pAdjustMethod = "BH",
+                            qvalueCutoff = 0.05,
+                            readable = TRUE, 
+                            pool = FALSE)
+
+ora_analysis_bp_simplify <- clusterProfiler::simplify(ora_analysis_bp, cutoff=0.6, by="p.adjust", select_fun=min)
+
+ora_analysis_bp_df_C1 <- ora_analysis_bp@result  %>% tibble::rownames_to_column("GO") %>% filter(p.adjust<=0.05)
+readr::write_csv(ora_analysis_bp_df_C1, "ora_analysis_athaliana_res_cluster_1_entrezid.csv")
+
+DT::datatable(ora_analysis_bp_df_C1, class = 'cell-border stripe', editable = TRUE,extensions = 'Buttons', options = list(dom = 'Bfrtip', buttons = c('copy', 'csv', 'excel', 'pdf', 'print')), filter = "top", rownames = F)
+
+barplot(ora_analysis_bp_simplify, 
+        drop = TRUE, 
+        showCategory = 10, 
+        title = "GO Biological Pathways - Black module",
+        font.size = 14)
+
+```
+
+### Módulo Marron
+
+```{r}
+#Genes=read.csv("Results_general.csv", sep = ';')
+
+# retrieving NCBI Entrez gene id for our genes called differential
+module_athaliana_genes_annotated<- biomartr::biomart(genes = genes_module_brown$Probes,                  # genes were retrieved using biomartr::getGenome()
+                                mart = "plants_mart",                     # marts were selected with biomartr::getMarts()
+                                dataset = "athaliana_eg_gene",               # datasets were selected with biomartr::getDatasets()
+                                attributes = attributes_to_retrieve,            # attributes were selected with biomartr::getAttributes()
+                                filters =   "ensembl_gene_id" )# query key
+head(module_athaliana_genes_annotated)  
+
+# performing the ORA for Gene Ontology Biological Process class
+ora_analysis_bp <- enrichGO(gene = module_athaliana_genes_annotated$entrezgene_id, 
+                            universe = GeneAnnotation$entrezgene_id, 
+                            OrgDb = a_thaliana,  # contains the TAIR/Ensembl id to GO correspondence for A. thaliana
+                            keyType = "ENTREZID",
+                            ont = "BP",              #  "BP", "CC" or "MF",
+                            pAdjustMethod = "BH",
+                            qvalueCutoff = 0.05,
+                            readable = TRUE, 
+                            pool = FALSE)
+
+ora_analysis_bp_simplify <- clusterProfiler::simplify(ora_analysis_bp, cutoff=0.6, by="p.adjust", select_fun=min)
+
+ora_analysis_bp_df_C1 <- ora_analysis_bp@result  %>% tibble::rownames_to_column("GO") %>% filter(p.adjust<=0.05)
+readr::write_csv(ora_analysis_bp_df_C1, "ora_analysis_athaliana_res_cluster_1_entrezid.csv")
+
+DT::datatable(ora_analysis_bp_df_C1, class = 'cell-border stripe', editable = TRUE,extensions = 'Buttons', options = list(dom = 'Bfrtip', buttons = c('copy', 'csv', 'excel', 'pdf', 'print')), filter = "top", rownames = F)
+
+barplot(ora_analysis_bp_simplify, 
+        drop = TRUE, 
+        showCategory = 10, 
+        title = "Procesos biológicos GO - Módulo Marrón",
+        font.size = 14)
+
+```
+
+### Módulo Amarillo
+
+```{r}
+#Genes=read.csv("Results_general.csv", sep = ';')
+
+# retrieving NCBI Entrez gene id for our genes called differential
+module_athaliana_genes_annotated<- biomartr::biomart(genes = genes_module_yellow$Probes,                  # genes were retrieved using biomartr::getGenome()
+                                mart = "plants_mart",                     # marts were selected with biomartr::getMarts()
+                                dataset = "athaliana_eg_gene",               # datasets were selected with biomartr::getDatasets()
+                                attributes = attributes_to_retrieve,            # attributes were selected with biomartr::getAttributes()
+                                filters =   "ensembl_gene_id" )# query key
+head(module_athaliana_genes_annotated)  
+
+# performing the ORA for Gene Ontology Biological Process class
+ora_analysis_bp <- enrichGO(gene = module_athaliana_genes_annotated$entrezgene_id, 
+                            universe = GeneAnnotation$entrezgene_id, 
+                            OrgDb = a_thaliana,  # contains the TAIR/Ensembl id to GO correspondence for A. thaliana
+                            keyType = "ENTREZID",
+                            ont = "BP",              #  "BP", "CC" or "MF",
+                            pAdjustMethod = "BH",
+                            qvalueCutoff = 0.05,
+                            readable = TRUE, 
+                            pool = FALSE)
+
+ora_analysis_bp_simplify <- clusterProfiler::simplify(ora_analysis_bp, cutoff=0.6, by="p.adjust", select_fun=min)
+
+ora_analysis_bp_df_C1 <- ora_analysis_bp@result  %>% tibble::rownames_to_column("GO") %>% filter(p.adjust<=0.05)
+readr::write_csv(ora_analysis_bp_df_C1, "ora_analysis_athaliana_res_cluster_1_entrezid.csv")
+
+DT::datatable(ora_analysis_bp_df_C1, class = 'cell-border stripe', editable = TRUE,extensions = 'Buttons', options = list(dom = 'Bfrtip', buttons = c('copy', 'csv', 'excel', 'pdf', 'print')), filter = "top", rownames = F)
+
+barplot(ora_analysis_bp_simplify, 
+        drop = TRUE, 
+        showCategory = 10, 
+        title = "Procesos biológicos GO - Módulo Amarillo",
+        font.size = 14)
+
+```
+
+### Módulo Verde
+
+```{r}
+#Genes=read.csv("Results_general.csv", sep = ';')
+
+# retrieving NCBI Entrez gene id for our genes called differential
+module_athaliana_genes_annotated<- biomartr::biomart(genes = genes_module_green$Probes,                  # genes were retrieved using biomartr::getGenome()
+                                mart = "plants_mart",                     # marts were selected with biomartr::getMarts()
+                                dataset = "athaliana_eg_gene",               # datasets were selected with biomartr::getDatasets()
+                                attributes = attributes_to_retrieve,            # attributes were selected with biomartr::getAttributes()
+                                filters =   "ensembl_gene_id" )# query key
+head(module_athaliana_genes_annotated)  
+
+# performing the ORA for Gene Ontology Biological Process class
+ora_analysis_bp <- enrichGO(gene = module_athaliana_genes_annotated$entrezgene_id, 
+                            universe = GeneAnnotation$entrezgene_id, 
+                            OrgDb = a_thaliana,  # contains the TAIR/Ensembl id to GO correspondence for A. thaliana
+                            keyType = "ENTREZID",
+                            ont = "BP",              #  "BP", "CC" or "MF",
+                            pAdjustMethod = "BH",
+                            qvalueCutoff = 0.05,
+                            readable = TRUE, 
+                            pool = FALSE)
+
+ora_analysis_bp_simplify <- clusterProfiler::simplify(ora_analysis_bp, cutoff=0.6, by="p.adjust", select_fun=min)
+
+ora_analysis_bp_df_C1 <- ora_analysis_bp@result  %>% tibble::rownames_to_column("GO") %>% filter(p.adjust<=0.05)
+readr::write_csv(ora_analysis_bp_df_C1, "ora_analysis_athaliana_res_cluster_1_entrezid.csv")
+
+DT::datatable(ora_analysis_bp_df_C1, class = 'cell-border stripe', editable = TRUE,extensions = 'Buttons', options = list(dom = 'Bfrtip', buttons = c('copy', 'csv', 'excel', 'pdf', 'print')), filter = "top", rownames = F)
+
+barplot(ora_analysis_bp_simplify, 
+        drop = TRUE, 
+        showCategory = 10, 
+        title = "Procesos biológicos GO - Módulo Verde",
+        font.size = 14)
+
+```
+
+### Módulo Turquesa
+
+```{r}
+#Genes=read.csv("Results_general.csv", sep = ';')
+
+# retrieving NCBI Entrez gene id for our genes called differential
+module_athaliana_genes_annotated<- biomartr::biomart(genes = genes_module_turquoise$Probes,                  # genes were retrieved using biomartr::getGenome()
+                                mart = "plants_mart",                     # marts were selected with biomartr::getMarts()
+                                dataset = "athaliana_eg_gene",               # datasets were selected with biomartr::getDatasets()
+                                attributes = attributes_to_retrieve,            # attributes were selected with biomartr::getAttributes()
+                                filters =   "ensembl_gene_id" )# query key
+head(module_athaliana_genes_annotated)  
+
+# performing the ORA for Gene Ontology Biological Process class
+ora_analysis_bp <- enrichGO(gene = module_athaliana_genes_annotated$entrezgene_id, 
+                            universe = GeneAnnotation$entrezgene_id, 
+                            OrgDb = a_thaliana,  # contains the TAIR/Ensembl id to GO correspondence for A. thaliana
+                            keyType = "ENTREZID",
+                            ont = "BP",              #  "BP", "CC" or "MF",
+                            pAdjustMethod = "BH",
+                            qvalueCutoff = 0.05,
+                            readable = TRUE, 
+                            pool = FALSE)
+
+ora_analysis_bp_simplify <- clusterProfiler::simplify(ora_analysis_bp, cutoff=0.6, by="p.adjust", select_fun=min)
+
+ora_analysis_bp_df_C1 <- ora_analysis_bp@result  %>% tibble::rownames_to_column("GO") %>% filter(p.adjust<=0.05)
+readr::write_csv(ora_analysis_bp_df_C1, "ora_analysis_athaliana_res_cluster_1_entrezid.csv")
+
+DT::datatable(ora_analysis_bp_df_C1, class = 'cell-border stripe', editable = TRUE,extensions = 'Buttons', options = list(dom = 'Bfrtip', buttons = c('copy', 'csv', 'excel', 'pdf', 'print')), filter = "top", rownames = F)
+
+barplot(ora_analysis_bp_simplify, 
+        drop = TRUE, 
+        showCategory = 10, 
+        title = "Procesos biológicos GO - Módulo Turquesa",
+        font.size = 14)
+
+```
+
+### Módulo Azul
+
+```{r}
+#Genes=read.csv("Results_general.csv", sep = ';')
+
+# retrieving NCBI Entrez gene id for our genes called differential
+module_athaliana_genes_annotated<- biomartr::biomart(genes = genes_module_blue$Probes,                  # genes were retrieved using biomartr::getGenome()
+                                mart = "plants_mart",                     # marts were selected with biomartr::getMarts()
+                                dataset = "athaliana_eg_gene",               # datasets were selected with biomartr::getDatasets()
+                                attributes = attributes_to_retrieve,            # attributes were selected with biomartr::getAttributes()
+                                filters =   "ensembl_gene_id" )# query key
+head(module_athaliana_genes_annotated)  
+
+# performing the ORA for Gene Ontology Biological Process class
+ora_analysis_bp <- enrichGO(gene = module_athaliana_genes_annotated$entrezgene_id, 
+                            universe = GeneAnnotation$entrezgene_id, 
+                            OrgDb = a_thaliana,  # contains the TAIR/Ensembl id to GO correspondence for A. thaliana
+                            keyType = "ENTREZID",
+                            ont = "BP",              #  "BP", "CC" or "MF",
+                            pAdjustMethod = "BH",
+                            qvalueCutoff = 0.05,
+                            readable = TRUE, 
+                            pool = FALSE)
+
+ora_analysis_bp_simplify <- clusterProfiler::simplify(ora_analysis_bp, cutoff=0.6, by="p.adjust", select_fun=min)
+
+ora_analysis_bp_df_C1 <- ora_analysis_bp@result  %>% tibble::rownames_to_column("GO") %>% filter(p.adjust<=0.05)
+readr::write_csv(ora_analysis_bp_df_C1, "ora_analysis_athaliana_res_cluster_1_entrezid.csv")
+
+DT::datatable(ora_analysis_bp_df_C1, class = 'cell-border stripe', editable = TRUE,extensions = 'Buttons', options = list(dom = 'Bfrtip', buttons = c('copy', 'csv', 'excel', 'pdf', 'print')), filter = "top", rownames = F)
+
+barplot(ora_analysis_bp_simplify, 
+        drop = TRUE, 
+        showCategory = 10, 
+        title = "Procesos biológicos GO - Módulo Azul",
+        font.size = 14)
+
+```
+
+### Módulo Gris
+
+```{r}
+#Genes=read.csv("Results_general.csv", sep = ';')
+
+# retrieving NCBI Entrez gene id for our genes called differential
+module_athaliana_genes_annotated<- biomartr::biomart(genes = genes_module_grey$Probes,                  # genes were retrieved using biomartr::getGenome()
+                                mart = "plants_mart",                     # marts were selected with biomartr::getMarts()
+                                dataset = "athaliana_eg_gene",               # datasets were selected with biomartr::getDatasets()
+                                attributes = attributes_to_retrieve,            # attributes were selected with biomartr::getAttributes()
+                                filters =   "ensembl_gene_id" )# query key
+head(module_athaliana_genes_annotated)  
+
+# performing the ORA for Gene Ontology Biological Process class
+ora_analysis_bp <- enrichGO(gene = module_athaliana_genes_annotated$entrezgene_id, 
+                            universe = GeneAnnotation$entrezgene_id, 
+                            OrgDb = a_thaliana,  # contains the TAIR/Ensembl id to GO correspondence for A. thaliana
+                            keyType = "ENTREZID",
+                            ont = "BP",              #  "BP", "CC" or "MF",
+                            pAdjustMethod = "BH",
+                            qvalueCutoff = 0.05,
+                            readable = TRUE, 
+                            pool = FALSE)
+
+ora_analysis_bp_simplify <- clusterProfiler::simplify(ora_analysis_bp, cutoff=0.6, by="p.adjust", select_fun=min)
+
+ora_analysis_bp_df_C1 <- ora_analysis_bp@result  %>% tibble::rownames_to_column("GO") %>% filter(p.adjust<=0.05)
+readr::write_csv(ora_analysis_bp_df_C1, "ora_analysis_athaliana_res_cluster_1_entrezid.csv")
+
+DT::datatable(ora_analysis_bp_df_C1, class = 'cell-border stripe', editable = TRUE,extensions = 'Buttons', options = list(dom = 'Bfrtip', buttons = c('copy', 'csv', 'excel', 'pdf', 'print')), filter = "top", rownames = F)
+
+barplot(ora_analysis_bp_simplify, 
+        drop = TRUE, 
+        showCategory = 10, 
+        title = "GO Biological Pathways - Grey Module",
+        font.size = 14)
+
+```
+
+# Visualizar tendencias de los módulos
+
+```{r}
+data=read.csv("normalized_counts_df_filt_3.csv")
+
+metadata= read.csv("Metadata_todo.csv")
+
+# Summarise counts 
+trans_cts_mean <- data %>% 
+  # convert to long format
+  pivot_longer(cols = CIN1:MFR4, names_to = "Muestra", values_to = "cts")  %>% 
+  # join with sample info table
+  full_join(metadata, by = ("Muestra")) %>% 
+  # filter to retain only genes of interest # Esto ya lo he hecho antes asi que no sería necesario
+  # filter(Gene %in% candidate_genes) %>% 
+  # por cada gen:
+  group_by(Gene) %>% 
+  # scale the cts column
+  mutate(cts_scaled = (cts - mean(cts))/sd(cts)) %>% 
+  # for each gene, strain and minute
+  group_by(Gene, Condition, Time) %>%
+  # calculate the mean (scaled) cts
+  summarise(mean_cts_scaled = mean(cts_scaled),
+            nrep = n()) %>% 
+  ungroup()
+
+# Visualise gene expression trends per cluster
+
+trans_cts_cluster <- trans_cts_mean %>% 
+  inner_join(datOutput, by = "Gene")
+
+head(trans_cts_cluster)
+
+
+# trick to add a line to each facet showing the median expression in each cluster:
+trans_cts_cluster %>%
+  ggplot (aes(x=factor(Time, level=c('IN', 'FC', 'FA', 'FR')), y=mean_cts_scaled)) +
+  geom_line(aes(group = Gene), alpha = 0.3) +
+  geom_line(stat = "summary", fun = "median", colour = "brown", size = 1.5, aes(group = 1)) +
+  facet_grid(rows = vars(Condition), cols = vars(moduleColorsSt)) +
+  xlab('Time')
+```
+
+# Comparativa con los datos de HC k means:
+
+```{r}
+# Necesitamos los datos de HC K means.
+
+genescluster1HcKmeans=read.csv("genes_cluster_1.csv")
+genescluster2HcKmeans=read.csv("genes_cluster_2.csv")
+genescluster3HcKmeans=read.csv("genes_cluster_3.csv")
+genescluster4HcKmeans=read.csv("genes_cluster_4.csv")
+genescluster5HcKmeans=read.csv("genes_cluster_5.csv")
+genescluster6HcKmeans=read.csv("genes_cluster_6.csv")
+
+# Comparativa con los datos de HC k means:
+lt <- list(
+  counts1 = as.character(genescluster1HcKmeans$Gene),  
+  M_azul = as.character(genes_module_blue$Probes),
+  counts2 = as.character(genescluster2HcKmeans$Gene),  
+  M_negro = as.character(genes_module_black$Probes),
+  counts3 = as.character(genescluster3HcKmeans$Gene),  
+  M_marron = as.character(genes_module_brown$Probes),
+  counts4 = as.character(genescluster4HcKmeans$Gene),  
+  M_verde = as.character(genes_module_green$Probes),
+  counts5 = as.character(genescluster5HcKmeans$Gene),  
+  M_gris = as.character(genes_module_grey$Probes),
+  counts6 = as.character(genescluster6HcKmeans$Gene),  
+  M_rojo = as.character(genes_module_red$Probes),
+  M_turquesa = as.character(genes_module_turquoise$Probes),
+  M_amarillo = as.character(genes_module_yellow$Probes) 
+)
+list_to_matrix(lt) #
+
+
+# Generamos las gráficas
+library(UpSetR)
+m2 = make_comb_mat(lt, mode = "intersect") # elegimos el modo intersect
+UpSet(m2)
+```
+
+# Visualizar las conexiones de un módulo
+
+```{r}
+library(igraph)
+
+# Define the module to visualize
+module = c("black","red")
+
+# Extract genes in the selected module
+genesInModule = colnames(datExpr)[moduleColorsSt == module]
+
+# Compute the Topological Overlap Matrix (TOM)
+TOM = TOMsimilarityFromExpr(datExpr, power = 6)  # Use the same power as in module detection
+
+# Get indices of the genes in the selected module
+geneIndices = which(moduleColorsSt == module)
+
+# Extract the TOM values for these genes only
+TOMmodule = TOM[geneIndices, geneIndices]
+
+# Name rows and columns with gene names
+dimnames(TOMmodule) = list(genesInModule, genesInModule)
+
+# Compute gene connectivity (sum of TOM rows)
+connectivity = rowSums(TOMmodule)
+
+# Select the top 30 most connected genes for visualization
+numGenesToPlot = min(30, length(connectivity))  # Limit to 30 for clarity
+topGenes = names(sort(connectivity, decreasing = TRUE)[1:numGenesToPlot])
+
+# Subset the TOM for these genes
+TOMsubset = TOMmodule[topGenes, topGenes]
+
+# Convert TOM to an adjacency matrix (threshold-based)
+adjacencyThreshold = 0.2  # Adjust threshold for clarity
+adjMatrix = TOMsubset
+adjMatrix[adjMatrix < adjacencyThreshold] = 0  # Remove weak connections
+
+# Create an igraph object
+networkGraph = graph.adjacency(adjMatrix, mode = "undirected", weighted = TRUE, diag = FALSE)
+
+# Define node sizes based on connectivity (scale size)
+nodeSizes = connectivity[topGenes] / max(connectivity[topGenes]) * 10 + 5  # Scale for visualization
+
+# Highlight the top 5 hub genes (most connected genes)
+numHubs = 5
+hubGenes = names(sort(connectivity, decreasing = TRUE)[1:numHubs])
+
+# Assign colors (hub genes = red, others = module color)
+nodeColors = ifelse(topGenes %in% hubGenes, "blue", module)
+
+# Plot the network with labels and hub genes highlighted
+plot(networkGraph,
+     vertex.size = nodeSizes,  # Size based on connectivity
+     vertex.label = topGenes,  # Show gene names
+     vertex.label.cex = 0.8,   # Adjust label size
+     vertex.label.color = "black",  # Label color
+     vertex.color = nodeColors,  # Hub genes in red
+     edge.width = E(networkGraph)$weight * 10,  # Scale edge width by weight
+     layout = layout_with_fr(networkGraph),  # Use force-directed layout
+     main = paste("Network plot for module:", module))
+
+```
+
+# Extraer genes con mayor conectuvidad de cada módulo
+
+```{r}
+
+# Initialize list to store hub genes
+hubGenesList = list()
+
+# Compute TOM for all genes
+TOM = TOMsimilarityFromExpr(datExpr, power = 6)  # Use the same power as in module detection
+
+# Loop through each module
+modules = unique(moduleColorsSt)
+
+for (module in modules) {
+    # Get gene names in the module
+    genesInModule = colnames(datExpr)[moduleColorsSt == module]
+
+    # Get indices of these genes
+    geneIndices = which(moduleColorsSt == module)
+
+    # Extract TOM values for this module
+    TOMmodule = TOM[geneIndices, geneIndices]
+
+    # Compute connectivity
+    connectivity = rowSums(TOMmodule)
+
+    # Select the top 5 hub genes (change number if needed)
+    numHubs = min(5, length(connectivity))  # Avoid errors in small modules
+    hubGenes = names(sort(connectivity, decreasing = TRUE)[1:numHubs])
+
+    # Store in list
+    hubGenesList[[module]] = hubGenes
+}
+
+# Convert to data frame
+hubGenesDF = do.call(rbind, lapply(names(hubGenesList), function(mod) {
+    data.frame(Module = mod, HubGene = hubGenesList[[mod]])
+}))
+
+# Print results
+print(hubGenesDF)
+
+# Save to CSV
+write.csv(hubGenesDF, "Hub_Genes.csv", row.names = FALSE)
+
+```
