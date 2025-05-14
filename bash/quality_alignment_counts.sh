@@ -9,7 +9,7 @@ conda install -c bioconda fastqc
 mkdir calidad_previa
 
 # Corremos la herramienta en todas nuestras muestras y guardamos nuestros resultados en nuestra carpeta creada
-fastqc *.fastq.gz -o calidad_previa/ # en nuestro caso los archivos se encontraban comprimidos.
+fastqc *.fastq -o calidad_previa/ # en nuestro caso los archivos se encontraban comprimidos.
 
 # Trim Galore!
 conda install -c bioconda trim-galore
@@ -60,5 +60,5 @@ mkdir -p counts
 for bamfile in bam_files/*.sorted.bam; do
     base=$(basename "$bamfile" .sorted.bam)
     
-    htseq-count -f bam -r pos -s reverse -t exon -i gene_id "$bamfile" Athaliana.gtf > "counts/${base}_counts.txt"
+    htseq-count -f bam -r pos -s reverse -t gene -i gene_id "$bamfile" Athaliana.gtf > "counts/${base}_counts.txt"
 done
