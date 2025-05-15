@@ -15,7 +15,7 @@ En esta carpeta encontramos el archivo quality_aligment_counts.sh que contiene e
 En esta carpeta también encontramos un ejemplo de resultados de fastqc en una carpeta a parte.
 
 ## Carpeta "R"
-En esta carpeta se encuentra el código denerado en el lenguage de programación R en extensión .qmd. Esta extensión permite su mejor visualización y la posibilidad de convertir el código a HTML.
+En esta carpeta se encuentra el código denerado en el lenguage de programación R: DESeq2.qmd. Esta extensión permite su mejor visualización y la posibilidad de convertir el código a HTML.
     Analisis previo de los datos: PCA, correlación de Pearson, detección de muestras atípicas
     Analisis de expresión diferencial: DESeq2
     Agrupamiento por HC kmeans
