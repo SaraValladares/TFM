@@ -109,7 +109,7 @@ set.seed(12345)
 #### Path del proyecto:
 
 ```{r}
-projPath="C:/Users/Sara/Desktop/Datos experimento/Datos htseq/TABLAS"
+projPath="C:/Users/Sara/Desktop/TFM"
 ```
 
 #### Matriz de datos de la expresión génica:
@@ -315,7 +315,7 @@ hc <- hcluster(t(rlogMat), method="pearson")
 
 TreeC = as.dendrogram(hc, method="average")
 plot(TreeC,
-     main = "Sample Clustering-checking outliers ",
+     main = "Detección de muestras atípicas",
      ylab = "Height")
 
 heatmap.2(pearson_cor, Rowv=as.dendrogram(hc), symm=T, trace="none",
@@ -350,7 +350,7 @@ deseq_object2 <- DESeq(ddset_filter)
 normalized_counts <- counts(deseq_object2, normalized = TRUE)
 ```
 
-#### View Results
+#### Vemos los resultados
 
 Vemos los resultados que obtenemos y las comparativas que estamos realizando
 
@@ -366,16 +366,16 @@ Si queremos ver los resultados de los primeros genes:
 head(deseq_results2)
 ```
 
-#### Normalize results by log fold change
+#### Normalizamos los resultados mediante log fold change
 
-Here we are shrinking log fold change by ashr.
+Reducimos el log fold change por ashr.
 
 ```{r}
 deseq_results2 <- lfcShrink(
-  deseq_object2, # The original DESeq2 object after running DESeq()
+  deseq_object2, # Este es el objeto DESeq original después de correr DESeq()
   contrast=c("Inflorescencia","Flor_cerrada","Flor_abierta", "Fruto"),
   type = "ashr",
-  res = deseq_results2 # The original DESeq2 results table
+  res = deseq_results2 # Tiene que ir la tabla de resultados original
 )
 head(deseq_results2)
 ```
@@ -388,35 +388,37 @@ Los genes aparecen ordenados me menor a mayor p_valor ajustado.
 
 ```{r}
 deseq_df2 <- deseq_results2 %>%
-  # make into data.frame
+  # En formato data frame
   as.data.frame() %>%
-  # the gene names are row names -- let's make them a column for easy display
+  # Pasamos los genes de nombres de la fila a una columna con los datos
   tibble::rownames_to_column("Gene") %>%
-  # add a column for significance threshold results
+  # añadimos una columna que nos marca si ha pasado nuestro threshold de 0.05
   dplyr::mutate(threshold = padj < 0.05) %>%
-  # sort by statistic -- the highest values will be genes with
-  # higher expression in RPL10 mutated samples
+  # Está oerdenado por valor estadístico
   dplyr::arrange(dplyr::desc(log2FoldChange))
 
 head(deseq_df2)
 
 
 ###############
+# Con esto sabemos que número de genes están diferencialmente expresados a un p-valor ajustado menor a 0.05
 
-count(deseq_df2 %>%
-   filter(threshold == "TRUE"))
+# count(deseq_df2 %>%
+#    filter(threshold == "TRUE"))
 
 
 ```
 
-## Visualizations
+## Visualizaciones
 
-#### Plot counts
+#### Gráfica de las counts a lo largo del tiempo de un gen determinado
+
+Descomentar si se quiere usar
 
 ```{r}
 # Comprobamos que nuestro gen de interés está en la lista de genes diferencialmente expresados
 
-"AT1G62380" %in% rownames(deseq_df2)
+# "AT1G62380" %in% rownames(deseq_df2)
 ```
 
 Guarda una imagen en la carpeta que queramos. DESCOMENTAR SI SE QUIERE USAR
@@ -460,7 +462,7 @@ readr::write_csv(
   normalized_counts_df_filt,
   file.path(
     projPath,
-    "aaa.tsv" # Counts normalizadas y filtradas, dataframe que se usa para clustering
+    "normalized_counts_df_filt_deseq.tsv" # Counts normalizadas y filtradas, dataframe que se usa para clustering
   )
 )
 
@@ -471,18 +473,14 @@ readr::write_csv(
 
 Separamos nuestros datos usando un método de clustering jerárquico: HC-Kmeans. Esto lo hacemos para buscar una estructura dentro de nuestros genes particionandolos en diferentes clusters.
 
-There's two steps to this clustering procedure:
-
-Calculate a "distance" metric between each pair of genes Cluster the genes hierarchically using a particular agglomeration method In R, we can use the dist() function for the first step and hclust() for the second step.
-
 ```{r}
 # La función hkmeans() del paquete factoextra permite aplicar el método hierarchical K-means
-set.seed(101)
+set.seed(101) # Para que nos de un resultado consistente y no varia cada vez que lo ejecutemos
 
-
+# Datos que vamos a usar:
 normalized_counts_df_filt <- normalized_counts_df[rownames(normalized_counts_df) %in% deseq_df_filt$Gene, ]
 
-# Convert row names to a column with a general name
+# Convertimos los nombres de fila a una columna
 normalized_counts_df_filt <- tibble::rownames_to_column(normalized_counts_df_filt, var = "Gene")
 
 ##############################################
@@ -491,19 +489,19 @@ normalized_counts_df_filt <- tibble::rownames_to_column(normalized_counts_df_fil
 
               # Análisis de tendencias de cada uno de los clusters #
 
-# Summarise counts 
+# Realizaos un resumen de las counts
 trans_cts_mean <- normalized_counts_df_filt %>% 
-  # convert to long format
+  # pasamos la tabla a formato largo (la giramos)
   pivot_longer(cols = CIN1:MFR4, names_to = "Muestra", values_to = "cts")  %>% 
-  # join with sample info table
+  # juntamos la informacion con los metadatos
   full_join(metadata, by = ("Muestra")) %>% 
   # por cada gen:
   group_by(Gene) %>% 
-  # scale the cts column
+  # escalamos cts
   mutate(cts_scaled = (cts - mean(cts))/sd(cts)) %>% 
-  # for each gene, strain and minute
+  # para cada gen, condicion y tiempo
   group_by(Gene, Condition, time_stamp) %>%
-  # calculate the mean (scaled) cts
+  # calculamos la media
   summarise(mean_cts_scaled = mean(cts_scaled),
             nrep = n()) %>% 
   ungroup()
@@ -513,9 +511,15 @@ trans_cts_mean <- normalized_counts_df_filt %>%
 ###############################
 ##############################################
 
+##############################################
+###############################
+################
+
+                          # Agrupamiento con HC kmeans #
 
 
-# Create a matrix
+
+# Creamos la matriz
 hclust_matrix <- normalized_counts_df_filt %>% dplyr::select(-Gene) %>% 
   as.matrix()
 
@@ -523,32 +527,28 @@ hclust_matrix <- normalized_counts_df_filt %>% dplyr::select(-Gene) %>%
 rownames(hclust_matrix) <- normalized_counts_df_filt$Gene
 
 
-# Centers and scales data.
+# Centramos y escalamos
 hclust_matrix <- hclust_matrix %>% 
-  # transpose the matrix so genes are as columns
+  # pasamos los genes a las columnas, escalamos y ponemos de nuevo la matriz en la posición original
   t() %>% 
-  # apply scalling to each column of the matrix (genes)
   scale() %>% 
-  # transpose back so genes are as rows again
   t()
 
-#### SSE:
-#The first measure is using the sum of squared error (SSE). SSE is defined as the sum of the squared distance between each member of a cluster and its cluster centroid. We repeatedly test and increasing number of clusters and evaluate the SSE. As we increase the number of clusters the distance between any point and it’s centroid will be smaller since the cluster itself is smaller. At a certain number of clusters number however, the SSE will not significantly decrease with each new addition of a cluster. This is the elbow and suggests a suitable number of clusters:
+################################# SSE:###########################################
+#Para determinar el número de clusters utilizamos es la suma del error cuadrático (SSE). La SSE se define como la suma de las distancias al cuadrado entre cada miembro de un clúster y su centroide. Pamos probnado un número creciente de clústers y evaluamos la SSE. A medida que aumentamos el número de clústers, la distancia entre cualquier punto y su centroide será menor porque el clúster es más pequeño. A partir de cierto número de clústers, la SSE ya no disminuirá significativamente con cada nuevo clúster añadido. Este punto se conoce como el codo y sugiere un número adecuado de clústers.
 
 wss <- (nrow(hclust_matrix)-1)*sum(apply(hclust_matrix,2,var))
 for (i in 2:20) wss[i] <- sum(kmeans(hclust_matrix,
                                      centers=i)$withinss)
-plot(1:20, wss, type="b", xlab="Number of Clusters",
-     ylab="Within groups sum of squares")
+plot(1:20, wss, type="b", xlab="Número de grupos ",
+     ylab="suma de cuadrados dentro de los grupos")
 
 
 hkmeans_cluster <- hkmeans(x = hclust_matrix, hc.metric = "euclidean",
                            hc.method = "complete", k = 6)
 
 hkmeans_cluster <- hkmeans_cluster$cluster %>% 
-  # turn the named vector into a tibble
   enframe() %>% 
-  # rename some of the columns
   dplyr::rename(Gene = name, cluster = value)
 
 
@@ -558,9 +558,8 @@ gene_cluster_df <- as.data.frame(hkmeans_cluster)
 
 
 # Dataframe con las variables de interés
-df_anotacion <- data.frame(time = metadata$Time, condition = metadata$Condition) #, experiment = sample_info$experiment)
+df_anotacion <- data.frame(time = metadata$Time, condition = metadata$Condition) 
 
-#df_anotacion$experiment <- as.factor(df_anotacion$experiment)
 
 # Crear anotaciones
 anotacion <- HeatmapAnnotation(df = df_anotacion, show_annotation_name = FALSE)
@@ -586,7 +585,7 @@ ht <- Heatmap(matrix = hclust_matrix, name = "Z-score",
 
 ht
 
-#htShiny(ht) # ESto nos genera un Heatmap Interactivo en el que podemos hacer zoom en las zonas que más nos interesan
+#htShiny(ht) # Esto nos genera un Heatmap Interactivo en el que podemos hacer zoom en las zonas que más nos interesan
 
 gene_cluster <- hkmeans_cluster
 
@@ -619,7 +618,6 @@ readr::write_csv(genes_cluster_6_list, "genes_cluster_6.csv")
 ## Tendencias de expresión de cada cluster:
 
 ```{r}
-# Visualise gene expression trends per cluster
 
 trans_cts_cluster <- trans_cts_mean %>% 
   inner_join(hkmeans_cluster, by = "Gene")
@@ -627,126 +625,13 @@ trans_cts_cluster <- trans_cts_mean %>%
 head(trans_cts_cluster)
 
 
-# trick to add a line to each facet showing the median expression in each cluster:
+# Añadimos una linea que indica la expresión media de cada cluster
 trans_cts_cluster %>%
   ggplot (aes(x=factor(time_stamp, level=c('Inflorescencia', 'Flor_cerrada', 'Flor_abierta', 'Fruto')), y=mean_cts_scaled)) +
   geom_line(aes(group = Gene), alpha = 0.3) +
   geom_line(stat = "summary", fun = "median", colour = "brown", size = 1.5, aes(group = 1)) +
   facet_grid(rows = vars(Condition), cols = vars(cluster)) +
   xlab('Time')
-
-```
-
-## Filtrar por lo genes regulados por H3K27 y que tienen binding con Ref6
-
-```{r}
-# Tabla de H3K27 de consenso de varios datasets:
-H3K27 <- file.path(projPath, "H3K27.csv")
-
-H3K27 <- readr::read_delim(H3K27, delim = ";")
-
-H3K27 <- subset(H3K27, EN2 == TRUE) # Los genes que aparecen en al menos 2 datasets.
-
-  # De nuestros genes diferencialmente expresados cuales estan en la lista de H3K27 
-  library(dplyr)
-  
-  H3K27_filter <- gene_cluster %>%
-    mutate(H3K27_regulated = Gene %in% H3K27$Gene)
-  
-  print(H3K27_filter)
-
-  
-# Añadimos el otro filtro de H3K27 para ver si coinciden:
-
-Ref6 <- file.path(projPath, "Ref6_binding.csv")
-
-Ref6 <- readr::read_delim(Ref6, delim = ";")
-
-  # De nuestros genes cuales tienen binding con Ref6
-
-  H3K27_Ref6_filter <- H3K27_filter %>%
-    mutate(Ref6_binding = Gene %in% Ref6$Gene)
-  
-  print(H3K27_Ref6_filter)
-
-
-# write.table(resdata, file = paste(output_path,  "/resdata.csv", sep = "/"),  sep = ',', row.names = FALSE)
-# 
-# DT::datatable(resdata, class = 'cell-border stripe', editable = TRUE,extensions = 'Buttons', options = list(dom = 'Bfrtip', buttons = c('copy', 'csv', 'excel', 'pdf', 'print')), filter = "top", rownames = F)
-
-
-```
-
-Separamos los datos de las tablas de Chip seq de Le et al. para que cada dato este en una fila.
-
-De esto tenemos tanto de chip-seq de flores en H3K27 como de chip de binding a Ref6 en distintas condiciones.
-
--   Igual las de Ref6 se hace un consenso con todas las posibles variantes que se han hecho del chip seq.
-
-```{r}
-# Tabla de H3K27 chipseq en flores:
-H3K27_chip_flores <- file.path(projPath, "H3K27_chip_flores.csv")
-
-H3K27_chip_flores <- readr::read_delim(H3K27_chip_flores, delim = ";")
-
-
-  # Separamos los datos que estan en una misma fila en una fila cada uno: 
-  library(tidyr)
-  
-  H3K27_chip_flores <- H3K27_chip_flores %>%
-    separate_rows(Gene, sep = ",")
-  
-  print(H3K27_chip_flores)
-
-
-  # De nuestros genes cuales comparten genes con los datos del chip seq de H3K27 en flores 
-
-  H3K27_Ref6_H3K27ChipFlower_filter <- H3K27_Ref6_filter %>%
-    mutate(Chip_Flower_H3K27 = Gene %in% H3K27_chip_flores$Gene)
-  
-  print(H3K27_Ref6_H3K27ChipFlower_filter)
-  
-  
-
-# Tabla de varias condiciones de chiseq en Ref6:
-Ref6_chip <- file.path(projPath, "Ref6_chip.csv")
-
-Ref6_chip <- readr::read_delim(Ref6_chip, delim = ";")
-
-
-# Separamos los datos que estan en una misma fila en una fila cada uno:
-library(tidyr)
-#
-
-Ref6_chip <- Ref6_chip %>%
-  separate_rows(REF6_DSG, sep = ",")
-Ref6_chip <- Ref6_chip %>%
-  separate_rows(REF6_ZnF_DSG, sep = ",")
-Ref6_chip <- Ref6_chip %>%
-  separate_rows(REF6_ZnF_triple_mutant_with_DSG, sep = ",")
-Ref6_chip <- Ref6_chip %>%
-  separate_rows(REF6_triple_mutant_DSG, sep = ",")
-
-
-print(Ref6_chip)
-# Esto funciona pero no está nada bien optimizado, hay que mirar en hacerlo en un bucle que lo haga todo a la vez o encontrar una funcion que lo haga todo de una.
-  
-  # Debemos hacer una columan comun en la que tengamos todos los genes sumandos pero no repetidos ( no somos nada restrictivos de momento)
-
-  # Hay que ver que nombre se le deja al final y cambiarlo en las siguientes lineas de codigo
-  
-  #genes_comunes <- paste(unique(unlist(Ref6_chip)), collapse = ", ")
-  genes_comunes <- unique(unlist(Ref6_chip))
-  Ref6_chip <- Ref6_chip[rep(1:nrow(Ref6_chip), length.out = length(genes_comunes)), ]  
-  Ref6_chip$Gene <- genes_comunes #Llamamos a la nueva columna Gene para que cuadre con las demas
-
-  
-  # De nuestros genes cuales comparten genes con los datos del chip seq de H3K27 en flores
-
-  H3K27_Ref6_H3K27ChipFlower_Ref6Chip_filter <- H3K27_Ref6_H3K27ChipFlower_filter %>%
-    mutate(Chip_Ref6 = Gene %in% Ref6_chip$Gene)
-
-  print(H3K27_Ref6_H3K27ChipFlower_Ref6Chip_filter)
 
 ```
 
@@ -787,25 +672,24 @@ athaliana_mart <- useMart(biomart = "plants_mart", host = "https://plants.ensemb
 listAttributes <- listAttributes(mart = athaliana_mart, page="feature_page")
 listAttributes
 
-# building the universe!
+# Construimos un universo con nuestros genes
 
-attributes_to_retrieve = c("entrezgene_id", "external_gene_name", "name_1006", "go_id", "definition_1006")
+attributes_to_retrieve = c("entrezgene_id", "external_gene_name", "name_1006", "go_id", "definition_1006") # Que informacion queremos recuperar
 
-all_athaliana_genes <- biomartr::biomart(genes = deseq_df2$Gene, mart = "plants_mart",   dataset = "athaliana_eg_gene",  attributes = attributes_to_retrieve, filters =  "ensembl_gene_id" )  
+all_athaliana_genes <- biomartr::biomart(genes = deseq_df2$Gene, mart = "plants_mart",   dataset = "athaliana_eg_gene",  attributes = attributes_to_retrieve, filters =  "ensembl_gene_id" )  # Lo hacemos con todos los genes filtrados que han entrado a DESEQ
 
 all_athaliana_genes$entrezgene_id = as.character(all_athaliana_genes$entrezgene_id) 
-
+# Añadimos la infromación de la descripción del gen y el simbolo de TAIR
 attributes_annotation = c("description", "tair_symbol")
 
-resdata_annotation <- biomartr::biomart(genes = gene_cluster$Gene, mart = "plants_mart",   dataset = "athaliana_eg_gene",  attributes = attributes_annotation, filters =  "ensembl_gene_id" )  
+resdata_annotation <- biomartr::biomart(genes = gene_cluster$Gene, mart = "plants_mart",   dataset = "athaliana_eg_gene",  attributes = attributes_annotation, filters =  "ensembl_gene_id" )  # Esto lo hacemos con los genes diferencialmetne expresados
 
 resdata_annotationClean <- resdata_annotation[!duplicated(resdata_annotation$ensembl_gene_id),]
-resdata_annotationClean
+resdata_annotationClean # Limpiamos los datos
 
 resdata_with_annotation <- merge(gene_cluster,resdata_annotationClean, by.x = "Gene", by.y= "ensembl_gene_id" )
 
-write.table(resdata_with_annotation, file = paste(projPath,  "/resdata_with_annotation.csv", sep = "/"),  sep = ',', row.names = FALSE)
-
+# Creamos la tabla que podemos descargar
 DT::datatable(resdata_with_annotation, class = 'cell-border stripe', editable = TRUE,extensions = 'Buttons', options = list(dom = 'Bfrtip', buttons = c('copy', 'csv', 'excel', 'pdf', 'print')), filter = "top", rownames = F)
 
 ```
@@ -815,20 +699,20 @@ DT::datatable(resdata_with_annotation, class = 'cell-border stripe', editable = 
 ### Cluster 1:
 
 ```{r}
-# retrieving NCBI Entrez gene id for our genes called differential
+# Recuperamos el identificador Entrez de NCBI para nuestros genes defirencialmente expresados de cada grupo
 cluster_1_athaliana_genes_annotated<- biomartr::biomart(genes = genes_cluster_1$Gene,                  # genes were retrieved using biomartr::getGenome()
                                 mart = "plants_mart",                     # marts were selected with biomartr::getMarts()
                                 dataset = "athaliana_eg_gene",               # datasets were selected with biomartr::getDatasets()
                                 attributes = attributes_to_retrieve,            # attributes were selected with biomartr::getAttributes()
-                                filters =   "ensembl_gene_id" )# query key
+                                filters =   "ensembl_gene_id" )# clave de la consulta
 head(cluster_1_athaliana_genes_annotated)  
 
-# performing the ORA for Gene Ontology Biological Process class
+# Realizamos el análisis de sobrerrepresentación (ORA) para la categoría de Proceso Biológico en GO
 ora_analysis_bp <- enrichGO(gene = cluster_1_athaliana_genes_annotated$entrezgene_id, 
                             universe = all_athaliana_genes$entrezgene_id, 
-                            OrgDb = a_thaliana,  # contains the TAIR/Ensembl id to GO correspondence for A. thaliana
+                            OrgDb = a_thaliana,  #  correspondencia entre los identificadores TAIR/Ensembl y GO para A. thaliana
                             keyType = "ENTREZID",
-                            ont = "BP",              #  "BP", "CC" or "MF",
+                            ont = "BP",              #  "BP", "CC" o "MF" Se puede cambiar según la consulta
                             pAdjustMethod = "BH",
                             qvalueCutoff = 0.05,
                             readable = TRUE, 
@@ -839,39 +723,36 @@ ora_analysis_bp_simplify <- clusterProfiler::simplify(ora_analysis_bp, cutoff=0.
 ora_analysis_bp_df_C1 <- ora_analysis_bp@result  %>% tibble::rownames_to_column("GO") %>% filter(p.adjust<=0.05)
 readr::write_csv(ora_analysis_bp_df_C1, "ora_analysis_athaliana_res_cluster_1_entrezid.csv")
 
+# Creamos la tabla con los datos para que sea más sencillo analizarlos en profundidad
 DT::datatable(ora_analysis_bp_df_C1, class = 'cell-border stripe', editable = TRUE,extensions = 'Buttons', options = list(dom = 'Bfrtip', buttons = c('copy', 'csv', 'excel', 'pdf', 'print')), filter = "top", rownames = F)
 
 barplot(ora_analysis_bp_simplify, 
         drop = TRUE, 
         showCategory = 10, 
-        title = "GO Biological Pathways - Cluster 1",
-        font.size = 14)
+        title = "Procesos biológicos GO - Grupo 1",
+        font.size = 14)# Ajustamos el tamaño de letra dependiendo de si se sobrepone
 
 ```
 
 ### Cluster 2:
 
 ```{r}
-# retrieving NCBI Entrez gene id for our genes called differential
 cluster_2_athaliana_genes_annotated<- biomartr::biomart(genes = genes_cluster_2$Gene,                  # genes were retrieved using biomartr::getGenome()
                                 mart = "plants_mart",                     # marts were selected with biomartr::getMarts()
                                 dataset = "athaliana_eg_gene",               # datasets were selected with biomartr::getDatasets()
                                 attributes = attributes_to_retrieve,            # attributes were selected with biomartr::getAttributes()
-                                filters =   "ensembl_gene_id" )# query key
+                                filters =   "ensembl_gene_id" )
 head(cluster_2_athaliana_genes_annotated)  
 
-# performing the ORA for Gene Ontology Biological Process class
 ora_analysis_bp <- enrichGO(gene = cluster_2_athaliana_genes_annotated$entrezgene_id, 
                             universe = all_athaliana_genes$entrezgene_id, 
-                            OrgDb = a_thaliana,  # contains the TAIR/Ensembl id to GO correspondence for A. thaliana
+                            OrgDb = a_thaliana,  
                             keyType = "ENTREZID",
-                            ont = "BP",              # either "BP", "CC" or "MF",
+                            ont = "BP",              
                             pAdjustMethod = "BH",
                             qvalueCutoff = 0.05,
                             readable = TRUE, 
                             pool = FALSE)
-
-
 
 ora_analysis_bp_simplify <- clusterProfiler::simplify(ora_analysis_bp, cutoff=0.6, by="p.adjust", select_fun=min)
 
@@ -883,7 +764,7 @@ DT::datatable(ora_analysis_bp_df_C2, class = 'cell-border stripe', editable = TR
 barplot(ora_analysis_bp_simplify, 
         drop = TRUE, 
         showCategory = 10, 
-        title = "GO Biological Pathways - Cluster 2",
+        title = "Procesos biológicos GO - Grupo 2",
         font.size = 14)
 
 ```
@@ -892,20 +773,19 @@ barplot(ora_analysis_bp_simplify,
 
 ```{r}
 
-# retrieving NCBI Entrez gene id for our genes called differential
 cluster_3_athaliana_genes_annotated<- biomartr::biomart(genes = genes_cluster_3$Gene,                  # genes were retrieved using biomartr::getGenome()
                                 mart = "plants_mart",                     # marts were selected with biomartr::getMarts()
                                 dataset = "athaliana_eg_gene",               # datasets were selected with biomartr::getDatasets()
                                 attributes = attributes_to_retrieve,            # attributes were selected with biomartr::getAttributes()
-                                filters =   "ensembl_gene_id" )# query key
+                                filters =   "ensembl_gene_id" )
 head(cluster_3_athaliana_genes_annotated)  
 
 # performing the ORA for Gene Ontology Biological Process class
 ora_analysis_bp <- enrichGO(gene = cluster_3_athaliana_genes_annotated$entrezgene_id, 
                             universe = all_athaliana_genes$entrezgene_id, 
-                            OrgDb = a_thaliana,  # contains the TAIR/Ensembl id to GO correspondence for A. thaliana
+                            OrgDb = a_thaliana, 
                             keyType = "ENTREZID",
-                            ont = "BP",              # either "BP", "CC" or "MF",
+                            ont = "BP",             
                             pAdjustMethod = "BH",
                             qvalueCutoff = 0.05,
                             readable = TRUE, 
@@ -922,9 +802,9 @@ DT::datatable(ora_analysis_bp_df_C3, class = 'cell-border stripe', editable = TR
 
 barplot(ora_analysis_bp_simplify, 
         drop = TRUE, 
-        showCategory = 30, 
-        title = "GO Biological Pathways - Cluster 3",
-        font.size = 12)
+        showCategory = 10, # Podemos quitar categorias si se nos sobreponen o hay demasiadas
+        title = "Procesos biológicos GO - Grupo 3",
+        font.size = 9)
 
 
 ```
@@ -933,20 +813,18 @@ barplot(ora_analysis_bp_simplify,
 
 ```{r}
 
-# retrieving NCBI Entrez gene id for our genes called differential
 cluster_4_athaliana_genes_annotated<- biomartr::biomart(genes = genes_cluster_4$Gene,                  # genes were retrieved using biomartr::getGenome()
                                 mart = "plants_mart",                     # marts were selected with biomartr::getMarts()
                                 dataset = "athaliana_eg_gene",               # datasets were selected with biomartr::getDatasets()
                                 attributes = attributes_to_retrieve,            # attributes were selected with biomartr::getAttributes()
-                                filters =   "ensembl_gene_id" )# query key
+                                filters =   "ensembl_gene_id" )
 head(cluster_4_athaliana_genes_annotated)  
 
-# performing the ORA for Gene Ontology Biological Process class
 ora_analysis_bp <- enrichGO(gene = cluster_4_athaliana_genes_annotated$entrezgene_id, 
                             universe = all_athaliana_genes$entrezgene_id, 
-                            OrgDb = a_thaliana,  # contains the TAIR/Ensembl id to GO correspondence for A. thaliana
+                            OrgDb = a_thaliana,  
                             keyType = "ENTREZID",
-                            ont = "BP",              # either "BP", "CC" or "MF",
+                            ont = "BP",              
                             pAdjustMethod = "BH",
                             qvalueCutoff = 0.05,
                             readable = TRUE, 
@@ -964,7 +842,7 @@ DT::datatable(ora_analysis_bp_df_C4, class = 'cell-border stripe', editable = TR
 barplot(ora_analysis_bp_simplify, 
         drop = TRUE, 
         showCategory = 10, 
-        title = "GO Biological Pathways - Cluster 4",
+        title = "Procesos biológicos GO - Grupo 4",
         font.size = 14)
 
 
@@ -973,20 +851,19 @@ barplot(ora_analysis_bp_simplify,
 ### Cluster 5:
 
 ```{r}
-# retrieving NCBI Entrez gene id for our genes called differential
+
 cluster_5_athaliana_genes_annotated<- biomartr::biomart(genes = genes_cluster_5$Gene,                  # genes were retrieved using biomartr::getGenome()
                                 mart = "plants_mart",                     # marts were selected with biomartr::getMarts()
                                 dataset = "athaliana_eg_gene",               # datasets were selected with biomartr::getDatasets()
                                 attributes = attributes_to_retrieve,            # attributes were selected with biomartr::getAttributes()
-                                filters =   "ensembl_gene_id" )# query key
+                                filters =   "ensembl_gene_id" )
 head(cluster_5_athaliana_genes_annotated)  
 
-# performing the ORA for Gene Ontology Biological Process class
 ora_analysis_bp <- enrichGO(gene = cluster_5_athaliana_genes_annotated$entrezgene_id, 
                             universe = all_athaliana_genes$entrezgene_id, 
-                            OrgDb = a_thaliana,  # contains the TAIR/Ensembl id to GO correspondence for A. thaliana
+                            OrgDb = a_thaliana,  
                             keyType = "ENTREZID",
-                            ont = "BP",              # either "BP", "CC" or "MF",
+                            ont = "BP",              
                             pAdjustMethod = "BH",
                             qvalueCutoff = 0.05,
                             readable = TRUE, 
@@ -1004,7 +881,7 @@ DT::datatable(ora_analysis_bp_df_C5, class = 'cell-border stripe', editable = TR
 barplot(ora_analysis_bp_simplify, 
         drop = TRUE, 
         showCategory = 10, 
-        title = "GO Biological Pathways - Cluster 5",
+        title = "Procesos biológicos GO - Grupo 5",
         font.size = 14)
 
 
@@ -1013,20 +890,18 @@ barplot(ora_analysis_bp_simplify,
 ### Cluster 6:
 
 ```{r}
-# retrieving NCBI Entrez gene id for our genes called differential
 cluster_6_athaliana_genes_annotated<- biomartr::biomart(genes = genes_cluster_6$Gene,                  # genes were retrieved using biomartr::getGenome()
                                 mart = "plants_mart",                     # marts were selected with biomartr::getMarts()
                                 dataset = "athaliana_eg_gene",               # datasets were selected with biomartr::getDatasets()
                                 attributes = attributes_to_retrieve,            # attributes were selected with biomartr::getAttributes()
-                                filters =   "ensembl_gene_id" )# query key
+                                filters =   "ensembl_gene_id" )
 head(cluster_6_athaliana_genes_annotated)  
 
-# performing the ORA for Gene Ontology Biological Process class
 ora_analysis_bp <- enrichGO(gene = cluster_6_athaliana_genes_annotated$entrezgene_id, 
                             universe = all_athaliana_genes$entrezgene_id, 
-                            OrgDb = a_thaliana,  # contains the TAIR/Ensembl id to GO correspondence for A. thaliana
+                            OrgDb = a_thaliana,  
                             keyType = "ENTREZID",
-                            ont = "BP",              # either "BP", "CC" or "MF",
+                            ont = "BP",              
                             pAdjustMethod = "BH",
                             qvalueCutoff = 0.05,
                             readable = TRUE, 
@@ -1044,7 +919,7 @@ DT::datatable(ora_analysis_bp_df_C6, class = 'cell-border stripe', editable = TR
 barplot(ora_analysis_bp_simplify, 
         drop = TRUE, 
         showCategory = 10, 
-        title = "GO Biological Pathways - Cluster 6",
+        title = "Procesos biológicos GO - Grupo 6",
         font.size = 14)
 
 ```
@@ -1063,14 +938,14 @@ ggplot(count_data, aes(x = time_stamp, y = count, color = Condition, group = Con
   geom_point(size = 3) +  # Adjust point size
   geom_line() +           # Add a line connecting points
   theme_minimal() +
-  labs(title = "Gene Expression for AT1G18750",
-       x = "Time Stamp",
-       y = "Normalized Count") +
+  labs(title = "Expresión del gen: AT1G18750",
+       x = "Tiempo",
+       y = "Counts normalizadas") +
   scale_color_manual(values = c("red", "blue"))  # Customize colors
 
 ```
 
-# Tablas Enviar
+# Tablas Resultados
 
 ```{r}
 # Neasitamos unir la información de 3 tablas: de resdata con anotaciones necesitamos todas las columnas, de deseq
@@ -1080,20 +955,18 @@ ggplot(count_data, aes(x = time_stamp, y = count, color = Condition, group = Con
 # Esto debemos ordenarlo por Gene.
 
 
-# Step 1: Select only the 'id' and the desired column from each matrix
+# Hacemos copias de los DF que queremos especificando las columnas
 df1 <- resdata_with_annotation
 df2 <- deseq_df_filt[, c("Gene", "log2FoldChange")]
 df3 <- normalized_counts_df_filt
 
-# Step 2: Merge the matrices by 'id'
+# Hacemos un merge de las columnas usando "Gene"
 merged_df <- merge(merge(df1, df2, by = "Gene"), df3, by = "Gene")
 
-# Step 3: Order the result by 'id'
+# Ordenamos los resultados por la columna "Gene"
 merged_df <- merged_df[order(merged_df$Gene), ]
 
 # Guardar la tabla:
-
-write.table(merged_df, file = paste(projPath,  "/2602.csv", sep = "/"),  sep = ',', row.names = FALSE)
 
 DT::datatable(merged_df, class = 'cell-border stripe', editable = TRUE,extensions = 'Buttons', options = list(dom = 'Bfrtip', buttons = c('copy', 'csv', 'excel', 'pdf', 'print')), filter = "top", rownames = F)
 
@@ -1127,7 +1000,7 @@ normalized_counts_filt_matrix <- as.matrix(normalized_counts_df_filt[, !(names(n
 # Extraemos las primeras 3 letras de los nombres de las columnas.
 condiciones <- substr(colnames(normalized_counts_filt_matrix), 1, 3)
 
-# Compute the mean of replicates for each condition
+# Hacemos la media de las répplicas de cada condicion
 normalized_counts_filt_matrix_mean <- sapply(unique(condiciones), function(cond) {
   rowMeans(normalized_counts_filt_matrix[, condiciones == cond, drop = FALSE])
 })
@@ -1136,13 +1009,13 @@ normalized_counts_filt_matrix_mean <- sapply(unique(condiciones), function(cond)
 
 compute_mahalanobis_row <- function(row) {
   n <- length(row)
-  var_row <- var(row)  # Variance of the row (single feature variance)
-  dist_matrix <- matrix(0, n, n)  # Initialize distance matrix
+  var_row <- var(row)  # variancia de la linea
+  dist_matrix <- matrix(0, n, n)  # Inicializamos una matriz de distancias vacia
   
-  # Compute pairwise distances
+  # vamops generando las distancias a cada par de datos
   for (i in 1:n) {
     for (j in 1:n) {
-      dist_matrix[i, j] <- (row[i] - row[j])^2 / var_row  # Apicamos la formula de mahalanobis (pero estamos dividiendo entre la varianza de toda la fila no entre la inversa de la covarianza de la matriz)
+      dist_matrix[i, j] <- (row[i] - row[j])^2 / var_row  # Apicamos la formula de mahalanobis (estamos dividiendo entre la varianza de toda la fila)
     }
   }
 
@@ -1150,7 +1023,7 @@ compute_mahalanobis_row <- function(row) {
   return(dist_matrix)
 }
 
-# Apply the function row-wise
+# Aplicamos esto a todas las filas
 result <- lapply(1:nrow(normalized_counts_filt_matrix_mean), function(i) compute_mahalanobis_row(normalized_counts_filt_matrix_mean[i, ]))
 
 
@@ -1183,60 +1056,43 @@ mean_matrix$Gene <- deseq_df_filt$Gene
 
 mean_matrix <- mean_matrix[, c("Gene", setdiff(names(mean_matrix), "Gene"))] # Reordenamos para que la columna de genes sea la primera 
 
+##################### Para clusterizar ######################################
+
 
 # La función hkmeans() del paquete factoextra permite aplicar el método hierarchical K-means
 set.seed(456)
 
-
-# Para clusterizar
-
-# Create a matrix
 hclust_matrix <- mean_matrix %>% dplyr::select(-Gene) %>%
   as.matrix()
 
-# assign rownames
 rownames(hclust_matrix) <- normalized_counts_df_filt$Gene
 
-#hclust_matrix <- hclust_matrix[candidate_genes, ]
 
-# Centers and scales data.
 hclust_matrix <- hclust_matrix %>%
-  # transpose the matrix so genes are as columns
   t() %>%
-  # apply scalling to each column of the matrix (genes)
   scale() %>%
-  # transpose back so genes are as rows again
   t()
-
-#SSE:
-#The first measure is using the sum of squared error (SSE). SSE is defined as the sum of the squared distance between each member of a cluster and its cluster centroid. We repeatedly test and increasing number of clusters and evaluate the SSE. As we increase the number of clusters the distance between any point and it’s centroid will be smaller since the cluster itself is smaller. At a certain number of clusters number however, the SSE will not significantly decrease with each new addition of a cluster. This is the elbow and suggests a suitable number of clusters:
 
 wss <- (nrow(hclust_matrix)-1)*sum(apply(hclust_matrix,2,var))
 for (i in 2:20) wss[i] <- sum(kmeans(hclust_matrix,
                                      centers=i)$withinss)
-plot(1:20, wss, type="b", xlab="Number of Clusters",
-     ylab="Within groups sum of squares")
+plot(1:20, wss, type="b", xlab="Número de clusters",
+     ylab="Suma de los errores cuadraticos")
 
 
 hkmeans_cluster <- hkmeans(x = hclust_matrix, hc.metric = "euclidean",
                            hc.method = "complete", k = 6)
 
 hkmeans_cluster <- hkmeans_cluster$cluster %>% 
-  # turn the named vector into a tibble
   enframe() %>% 
-  # rename some of the columns
   dplyr::rename(Gene = name, cluster = value)
-
 
 head(hkmeans_cluster)
 
 gene_cluster_df <- as.data.frame(hkmeans_cluster)
 
-
 # Dataframe con las variables de interés
-df_anotacion <- data.frame(time = metadata_mean$Time, condition = metadata_mean$Condition) #, experiment = sample_info$experiment)
-
-#df_anotacion$experiment <- as.factor(df_anotacion$experiment)
+df_anotacion <- data.frame(time = metadata_mean$Time, condition = metadata_mean$Condition) 
 
 # Crear anotaciones
 anotacion <- HeatmapAnnotation(df = df_anotacion, show_annotation_name = FALSE)
@@ -1261,7 +1117,6 @@ ht <- Heatmap(matrix = hclust_matrix, name = "Z-score",
 
 
 ht
-
 
 gene_cluster <- hkmeans_cluster
 
@@ -1294,27 +1149,25 @@ readr::write_csv(genes_cluster_6_list_mahal, "genes_cluster_6_mahal.csv")
 ### Análisis de tendencias de los clusteres de mahalanobis
 
 ```{r}
-# Visualise gene expression trends per cluster
 
 trans_cts_cluster <- trans_cts_mean %>% 
   inner_join(hkmeans_cluster, by = "Gene")
 
 head(trans_cts_cluster)
 
-
-# trick to add a line to each facet showing the median expression in each cluster:
 trans_cts_cluster %>%
   ggplot (aes(x=factor(time_stamp, level=c('Inflorescencia', 'Flor_cerrada', 'Flor_abierta', 'Fruto')), y=mean_cts_scaled)) +
   geom_line(aes(group = Gene), alpha = 0.3) +
   geom_line(stat = "summary", fun = "median", colour = "brown", size = 1.5, aes(group = 1)) +
   facet_grid(rows = vars(Condition), cols = vars(cluster)) +
-  xlab('Time')
+  xlab('Tiempo')
 
 ```
 
 ## Gene ontology datos mahalanobis
 
 ```{r}
+# Cuidado que se sobreescriben cosas con el anterior, luego hay que limpiar los datos!!!! Igual hay que hacerlo una funcion mejor :3
 
 mart <- useMart(biomart="plants_mart", host="https://plants.ensembl.org")
 
@@ -1324,14 +1177,11 @@ athaliana_mart <- useMart(biomart = "plants_mart", host = "https://plants.ensemb
 listAttributes <- listAttributes(mart = athaliana_mart, page="feature_page")
 listAttributes
 
-# building the universe!
-
 attributes_to_retrieve = c("entrezgene_id", "external_gene_name", "name_1006", "go_id", "definition_1006")
 
 all_athaliana_genes <- biomartr::biomart(genes = deseq_df2$Gene, mart = "plants_mart",   dataset = "athaliana_eg_gene",  attributes = attributes_to_retrieve, filters =  "ensembl_gene_id" )  
 
 all_athaliana_genes$entrezgene_id = as.character(all_athaliana_genes$entrezgene_id) 
-
 attributes_annotation = c("description", "tair_symbol")
 
 resdata_annotation <- biomartr::biomart(genes = gene_cluster$Gene, mart = "plants_mart",   dataset = "athaliana_eg_gene",  attributes = attributes_annotation, filters =  "ensembl_gene_id" )  
@@ -1350,20 +1200,19 @@ DT::datatable(resdata_with_annotation, class = 'cell-border stripe', editable = 
 ### Cluster 1:
 
 ```{r}
-# retrieving NCBI Entrez gene id for our genes called differential
+
 cluster_1_athaliana_genes_annotated<- biomartr::biomart(genes = genes_cluster_1_mahal$Gene,                  # genes were retrieved using biomartr::getGenome()
                                 mart = "plants_mart",                     # marts were selected with biomartr::getMarts()
                                 dataset = "athaliana_eg_gene",               # datasets were selected with biomartr::getDatasets()
                                 attributes = attributes_to_retrieve,            # attributes were selected with biomartr::getAttributes()
-                                filters =   "ensembl_gene_id" )# query key
+                                filters =   "ensembl_gene_id" )
 head(cluster_1_athaliana_genes_annotated)  
 
-# performing the ORA for Gene Ontology Biological Process class
 ora_analysis_bp <- enrichGO(gene = cluster_1_athaliana_genes_annotated$entrezgene_id, 
                             universe = all_athaliana_genes$entrezgene_id, 
-                            OrgDb = a_thaliana,  # contains the TAIR/Ensembl id to GO correspondence for A. thaliana
+                            OrgDb = a_thaliana,  
                             keyType = "ENTREZID",
-                            ont = "BP",              # either "BP", "CC" or "MF",
+                            ont = "BP",              
                             pAdjustMethod = "BH",
                             qvalueCutoff = 0.05,
                             readable = TRUE, 
@@ -1379,7 +1228,7 @@ DT::datatable(ora_analysis_bp_df_C1, class = 'cell-border stripe', editable = TR
 barplot(ora_analysis_bp_simplify, 
         drop = TRUE, 
         showCategory = 10, 
-        title = "GO Biological Pathways - Cluster 1",
+        title = "Procesos biológicos GO - Mahal 1",
         font.size = 14)
 
 ```
@@ -1387,25 +1236,22 @@ barplot(ora_analysis_bp_simplify,
 ### Cluster 2:
 
 ```{r}
-# retrieving NCBI Entrez gene id for our genes called differential
 cluster_2_athaliana_genes_annotated<- biomartr::biomart(genes = genes_cluster_2_mahal$Gene,                  # genes were retrieved using biomartr::getGenome()
                                 mart = "plants_mart",                     # marts were selected with biomartr::getMarts()
                                 dataset = "athaliana_eg_gene",               # datasets were selected with biomartr::getDatasets()
                                 attributes = attributes_to_retrieve,            # attributes were selected with biomartr::getAttributes()
-                                filters =   "ensembl_gene_id" )# query key
+                                filters =   "ensembl_gene_id" )
 head(cluster_2_athaliana_genes_annotated)  
 
-# performing the ORA for Gene Ontology Biological Process class
 ora_analysis_bp <- enrichGO(gene = cluster_2_athaliana_genes_annotated$entrezgene_id, 
                             universe = all_athaliana_genes$entrezgene_id, 
-                            OrgDb = a_thaliana,  # contains the TAIR/Ensembl id to GO correspondence for A. thaliana
+                            OrgDb = a_thaliana,  
                             keyType = "ENTREZID",
-                            ont = "BP",              # either "BP", "CC" or "MF",
+                            ont = "BP",              
                             pAdjustMethod = "BH",
                             qvalueCutoff = 0.05,
                             readable = TRUE, 
                             pool = FALSE)
-
 
 
 ora_analysis_bp_simplify <- clusterProfiler::simplify(ora_analysis_bp, cutoff=0.6, by="p.adjust", select_fun=min)
@@ -1418,7 +1264,7 @@ DT::datatable(ora_analysis_bp_df_C2, class = 'cell-border stripe', editable = TR
 barplot(ora_analysis_bp_simplify, 
         drop = TRUE, 
         showCategory = 10, 
-        title = "GO Biological Pathways - Cluster 2",
+        title = "Procesos biológicos GO - Mahal 2",
         font.size = 14)
 
 ```
@@ -1427,20 +1273,18 @@ barplot(ora_analysis_bp_simplify,
 
 ```{r}
 
-# retrieving NCBI Entrez gene id for our genes called differential
 cluster_3_athaliana_genes_annotated<- biomartr::biomart(genes = genes_cluster_3_mahal$Gene,                  # genes were retrieved using biomartr::getGenome()
                                 mart = "plants_mart",                     # marts were selected with biomartr::getMarts()
                                 dataset = "athaliana_eg_gene",               # datasets were selected with biomartr::getDatasets()
                                 attributes = attributes_to_retrieve,            # attributes were selected with biomartr::getAttributes()
-                                filters =   "ensembl_gene_id" )# query key
+                                filters =   "ensembl_gene_id" )
 head(cluster_3_athaliana_genes_annotated)  
 
-# performing the ORA for Gene Ontology Biological Process class
 ora_analysis_bp <- enrichGO(gene = cluster_3_athaliana_genes_annotated$entrezgene_id, 
                             universe = all_athaliana_genes$entrezgene_id, 
-                            OrgDb = a_thaliana,  # contains the TAIR/Ensembl id to GO correspondence for A. thaliana
+                            OrgDb = a_thaliana,  
                             keyType = "ENTREZID",
-                            ont = "BP",              # either "BP", "CC" or "MF",
+                            ont = "BP",              
                             pAdjustMethod = "BH",
                             qvalueCutoff = 0.05,
                             readable = TRUE, 
@@ -1455,11 +1299,11 @@ readr::write_csv(ora_analysis_bp_df_C3, "ora_analysis_athaliana_res_cluster_3_en
 
 DT::datatable(ora_analysis_bp_df_C3, class = 'cell-border stripe', editable = TRUE,extensions = 'Buttons', options = list(dom = 'Bfrtip', buttons = c('copy', 'csv', 'excel', 'pdf', 'print')), filter = "top", rownames = F)
 
-barplot(ora_analysis_bp_simplify, 
-        drop = TRUE, 
-        showCategory = 30, 
-        title = "GO Biological Pathways - Cluster 3",
-        font.size = 7
+# barplot(ora_analysis_bp_simplify, 
+#         drop = TRUE, 
+#         showCategory = 30, 
+#         title = "Procesos biológicos GO - Mahal 3",
+#         font.size = 7
 
 
 ```
@@ -1468,26 +1312,22 @@ barplot(ora_analysis_bp_simplify,
 
 ```{r}
 
-# retrieving NCBI Entrez gene id for our genes called differential
 cluster_4_athaliana_genes_annotated<- biomartr::biomart(genes = genes_cluster_4_mahal$Gene,                  # genes were retrieved using biomartr::getGenome()
                                 mart = "plants_mart",                     # marts were selected with biomartr::getMarts()
                                 dataset = "athaliana_eg_gene",               # datasets were selected with biomartr::getDatasets()
                                 attributes = attributes_to_retrieve,            # attributes were selected with biomartr::getAttributes()
-                                filters =   "ensembl_gene_id" )# query key
+                                filters =   "ensembl_gene_id" )
 head(cluster_4_athaliana_genes_annotated)  
 
-# performing the ORA for Gene Ontology Biological Process class
 ora_analysis_bp <- enrichGO(gene = cluster_4_athaliana_genes_annotated$entrezgene_id, 
                             universe = all_athaliana_genes$entrezgene_id, 
-                            OrgDb = a_thaliana,  # contains the TAIR/Ensembl id to GO correspondence for A. thaliana
+                            OrgDb = a_thaliana,  
                             keyType = "ENTREZID",
-                            ont = "BP",              # either "BP", "CC" or "MF",
+                            ont = "BP",             
                             pAdjustMethod = "BH",
                             qvalueCutoff = 0.05,
                             readable = TRUE, 
                             pool = FALSE)
-
-
 
 ora_analysis_bp_simplify <- clusterProfiler::simplify(ora_analysis_bp, cutoff=0.6, by="p.adjust", select_fun=min)
 
@@ -1499,7 +1339,7 @@ DT::datatable(ora_analysis_bp_df_C4, class = 'cell-border stripe', editable = TR
 barplot(ora_analysis_bp_simplify, 
         drop = TRUE, 
         showCategory = 10, 
-        title = "GO Biological Pathways - Cluster 4",
+        title = "Procesos biológicos GO - Mahal 4",
         font.size = 14)
 
 
@@ -1508,26 +1348,22 @@ barplot(ora_analysis_bp_simplify,
 ### Cluster 5:
 
 ```{r}
-# retrieving NCBI Entrez gene id for our genes called differential
 cluster_5_athaliana_genes_annotated<- biomartr::biomart(genes = genes_cluster_5_mahal$Gene,                  # genes were retrieved using biomartr::getGenome()
                                 mart = "plants_mart",                     # marts were selected with biomartr::getMarts()
                                 dataset = "athaliana_eg_gene",               # datasets were selected with biomartr::getDatasets()
                                 attributes = attributes_to_retrieve,            # attributes were selected with biomartr::getAttributes()
-                                filters =   "ensembl_gene_id" )# query key
+                                filters =   "ensembl_gene_id" )
 head(cluster_5_athaliana_genes_annotated)  
 
-# performing the ORA for Gene Ontology Biological Process class
 ora_analysis_bp <- enrichGO(gene = cluster_5_athaliana_genes_annotated$entrezgene_id, 
                             universe = all_athaliana_genes$entrezgene_id, 
-                            OrgDb = a_thaliana,  # contains the TAIR/Ensembl id to GO correspondence for A. thaliana
+                            OrgDb = a_thaliana,  
                             keyType = "ENTREZID",
-                            ont = "BP",              # either "BP", "CC" or "MF",
+                            ont = "BP",             
                             pAdjustMethod = "BH",
                             qvalueCutoff = 0.05,
                             readable = TRUE, 
                             pool = FALSE)
-
-
 
 ora_analysis_bp_simplify <- clusterProfiler::simplify(ora_analysis_bp, cutoff=0.6, by="p.adjust", select_fun=min)
 
@@ -1539,7 +1375,7 @@ DT::datatable(ora_analysis_bp_df_C5, class = 'cell-border stripe', editable = TR
 barplot(ora_analysis_bp_simplify, 
         drop = TRUE, 
         showCategory = 10, 
-        title = "GO Biological Pathways - Cluster 5",
+        title = "Procesos biológicos GO - Mahal 5",
         font.size = 14)
 
 
@@ -1548,26 +1384,23 @@ barplot(ora_analysis_bp_simplify,
 ### Cluster 6:
 
 ```{r}
-# retrieving NCBI Entrez gene id for our genes called differential
+
 cluster_6_athaliana_genes_annotated<- biomartr::biomart(genes = genes_cluster_6_mahal$Gene,                  # genes were retrieved using biomartr::getGenome()
                                 mart = "plants_mart",                     # marts were selected with biomartr::getMarts()
                                 dataset = "athaliana_eg_gene",               # datasets were selected with biomartr::getDatasets()
                                 attributes = attributes_to_retrieve,            # attributes were selected with biomartr::getAttributes()
-                                filters =   "ensembl_gene_id" )# query key
+                                filters =   "ensembl_gene_id" )
 head(cluster_6_athaliana_genes_annotated)  
 
-# performing the ORA for Gene Ontology Biological Process class
 ora_analysis_bp <- enrichGO(gene = cluster_6_athaliana_genes_annotated$entrezgene_id, 
                             universe = all_athaliana_genes$entrezgene_id, 
-                            OrgDb = a_thaliana,  # contains the TAIR/Ensembl id to GO correspondence for A. thaliana
+                            OrgDb = a_thaliana, 
                             keyType = "ENTREZID",
-                            ont = "BP",              # either "BP", "CC" or "MF",
+                            ont = "BP",              
                             pAdjustMethod = "BH",
                             qvalueCutoff = 0.05,
                             readable = TRUE, 
                             pool = FALSE)
-
-
 
 ora_analysis_bp_simplify <- clusterProfiler::simplify(ora_analysis_bp, cutoff=0.6, by="p.adjust", select_fun=min)
 
@@ -1579,19 +1412,17 @@ DT::datatable(ora_analysis_bp_df_C6, class = 'cell-border stripe', editable = TR
 barplot(ora_analysis_bp_simplify, 
         drop = TRUE, 
         showCategory = 10, 
-        title = "GO Biological Pathways - Cluster 6",
+        title = "Procesos biológicos GO - Mahal 6",
         font.size = 14)
 
 ```
 
 ## Clustering Mahalanobis distances
 
-Con todas las réplicas. Nos ha servio para distinguir la muestra que daba error respecto al resto.
+Con todas las réplicas. Nos ha servido para ver si hay alguna muestra outlier pero parece que no es muy de fiar por el momento
 
 ```{r}
-
-
-# Replace with the path to your dataset file
+# Cargamos los datos otra vez si hacen falta
 # data_file <- file.path(projPath, "counts_todo.csv")
 # 
 # metadata_file <- file.path(projPath, "Metadata_todo.csv")
@@ -1601,34 +1432,27 @@ Con todas las réplicas. Nos ha servio para distinguir la muestra que daba error
 normalized_counts_filt_matrix <- as.matrix(normalized_counts_df_filt[, !(names(normalized_counts_df_filt) == "Gene")])
 
 
-
-
-# Function to compute Mahalanobis distances within a row
+# Funcion para hacer la distancia de mahalanobis en una linea
 compute_mahalanobis_row <- function(row) {
   n <- length(row)
-  var_row <- var(row)  # Variance of the row (single feature variance)
-  dist_matrix <- matrix(0, n, n)  # Initialize distance matrix
+  var_row <- var(row) 
+  dist_matrix <- matrix(0, n, n)  # Inicializamos la matriz de distancias vacia
   
-  # Compute pairwise distances
+  # Calculamos las ditancias
   for (i in 1:n) {
     for (j in 1:n) {
-      dist_matrix[i, j] <- (row[i] - row[j])^2 / var_row  # Apicamos la formula de mahalanobis (pero estamos dividiendo entre la varianza de toda la fila)
+      dist_matrix[i, j] <- (row[i] - row[j])^2 / var_row  # Apicamos la formula de mahalanobis (dividiendo entre la varianza de toda la fila)
     }
   }
   
   return(dist_matrix)
 }
 
-# Apply the function row-wise
+# Aplicamos la funcoion a cada fila
 result <- lapply(1:nrow(normalized_counts_filt_matrix), function(i) compute_mahalanobis_row(normalized_counts_filt_matrix[i, ]))
 
-# # Display the results
-# names(result) <- paste("Row", 1:nrow(data_matrix))
-# result
 
-
-####################################################################################
-
+###################################################################################
 # Creamos una nueva matriz vacia en la que ir añadendo los resultados
 # En esta matriz: por cada lina que creamos en la matriz nueva. cada valor debe ser la suma de la fila que le corresponde entre los valores que hay ( la media de los valores) 
 
@@ -1642,7 +1466,6 @@ compute_row_means <- function(mahal_matrix_list) {
   mean_matrix <- matrix(0, nrow = num_rows, ncol = num_cols) # Cremos una matriz vacia para los datos
   
   for (i in 1:num_rows) {
-    # Compute the mean for each column in the Mahalanobis matrix
     mean_matrix[i, ] <- apply(mahal_matrix_list[[i]], 2, mean)
   }
   
@@ -1674,38 +1497,28 @@ mean_matrix <- mean_matrix[, c("Gene", setdiff(names(mean_matrix), "Gene"))] # R
 set.seed(789)
 
 
-# Create a matrix
 hclust_matrix <- mean_matrix %>% dplyr::select(-Gene) %>% 
   as.matrix()
 
-# assign rownames
 rownames(hclust_matrix) <- normalized_counts_df_filt$Gene
 
-#hclust_matrix <- hclust_matrix[candidate_genes, ]
-
-# Centers and scales data.
 hclust_matrix <- hclust_matrix %>%
-  # transpose the matrix so genes are as columns
   t() %>%
-  # apply scalling to each column of the matrix (genes)
   scale() %>%
-  # transpose back so genes are as rows again
   t()
 
 wss <- (nrow(hclust_matrix)-1)*sum(apply(hclust_matrix,2,var))
 for (i in 2:20) wss[i] <- sum(kmeans(hclust_matrix,
                                      centers=i)$withinss)
-plot(1:20, wss, type="b", xlab="Number of Clusters",
-     ylab="Within groups sum of squares")
+plot(1:20, wss, type="b", xlab="Número de clusters",
+     ylab="Suma del error cuadrático")
 
 
 hkmeans_cluster <- hkmeans(x = hclust_matrix, hc.metric = "euclidean",
                            hc.method = "complete", k = 6)
 
 hkmeans_cluster <- hkmeans_cluster$cluster %>% 
-  # turn the named vector into a tibble
   enframe() %>% 
-  # rename some of the columns
   dplyr::rename(Gene = name, cluster = value)
 
 
@@ -1713,13 +1526,11 @@ head(hkmeans_cluster)
 
 gene_cluster_df <- as.data.frame(hkmeans_cluster)
 
-
 # Dataframe con las variables de interés
-df_anotacion <- data.frame(time = metadata$Time, condition = metadata$Condition) #, experiment = sample_info$experiment)
+df_anotacion <- data.frame(time = metadata$Time, condition = metadata$Condition) 
 
 # Crear anotaciones
 anotacion <- HeatmapAnnotation(df = df_anotacion, show_annotation_name = FALSE)
-
 
 Heatmap(matrix = hclust_matrix, name = "Z-score",
         clustering_distance_columns = "euclidean",
@@ -1727,7 +1538,6 @@ Heatmap(matrix = hclust_matrix, name = "Z-score",
         clustering_method_columns = "complete",
         clustering_method_rows = "complete",
         split = hkmeans_cluster$cluster, show_row_names = FALSE,  column_names_gp = gpar(fontsize = 8))
-
 
 ht <- Heatmap(matrix = hclust_matrix, name = "Z-score",
         clustering_distance_columns = "euclidean",
@@ -1747,30 +1557,6 @@ ht
 
 Para comparar los genes que hemos obtenido en los clusters de mahalanobis comparados con el los que obtenemos con counts. Nos crea una gráfica con las interacciones de cada uno de los clusters generados con la matriz de counts con cada uno de los que se genera con la matriz de distancias.
 
-```{r}
-H3K27_Ref6_H3K27ChipFlower_Ref6Chip_filter_TRUE =  H3K27_Ref6_H3K27ChipFlower_Ref6Chip_filter
-
-H3K27_Ref6_H3K27ChipFlower_Ref6Chip_filter_TRUE <- H3K27_Ref6_H3K27ChipFlower_Ref6Chip_filter[
-  apply(H3K27_Ref6_H3K27ChipFlower_Ref6Chip_filter, 1, function(row) any(row == TRUE)), 
-]
-
-print(H3K27_Ref6_H3K27ChipFlower_Ref6Chip_filter_TRUE)
-
-```
-
-```{r}
-# Tabla de genes que contiene aquellos que en al menos 1 de los estudios independientes está regulado por h3k27 o tiene binding don ref6.
-
-genes_interes_cluster1_counts <- merge(genes_cluster_1_list, H3K27_Ref6_H3K27ChipFlower_Ref6Chip_filter, by = "Gene", all.x = TRUE)
-
-genes_interes_cluster1_counts <- merge(genes_interes_cluster1_counts, resdata_with_annotation, by = "Gene", all.x = TRUE)
-
-
-print(genes_interes_cluster1_counts)
-
-write_xlsx(genes_interes_cluster1_counts, "genes_interes_cluster1_counts.xlsx")
-```
-
 Creamos las listas necesarias para UpSet plot.
 
 ```{r}
@@ -1789,26 +1575,9 @@ lt <- list(
   counts6 = as.character(genes_cluster_6_list$Gene),  
   mahal6 = as.character(genes_cluster_6_list_mahal$Gene)  
 )
-list_to_matrix(lt)
+# Pasamos la lista a una matrix
+list_to_matrix(lt) 
 
-# Lista que contiene los genes los clusters de Mahalanobis, counts y la lista de genes regulados por H3K27 o ue tienen binding con ref6.
-
-# lt2 <- list(
-#   counts1 = as.character(genes_cluster_1_list$Gene),  # Extract column as vector
-#   mahal1 = as.character(genes_cluster_1_list_mahal$Gene),
-#   counts2 = as.character(genes_cluster_2_list$Gene),  # Extract column as vector
-#   mahal2 = as.character(genes_cluster_2_list_mahal$Gene),
-#   counts3 = as.character(genes_cluster_3_list$Gene),  # Extract column as vector
-#   mahal3 = as.character(genes_cluster_3_list_mahal$Gene),
-#   counts4 = as.character(genes_cluster_4_list$Gene),  # Extract column as vector
-#   mahal4 = as.character(genes_cluster_4_list_mahal$Gene),
-#   counts5 = as.character(genes_cluster_5_list$Gene),  # Extract column as vector
-#   mahal5 = as.character(genes_cluster_5_list_mahal$Gene),
-#   counts6 = as.character(genes_cluster_6_list$Gene),  # Extract column as vector
-#   mahal6 = as.character(genes_cluster_6_list_mahal$Gene),  # Extract column as vector
-#   regulados = as.character(H3K27_Ref6_H3K27ChipFlower_Ref6Chip_filter_TRUE$Gene)  # Extract column as vector
-# )
-# list_to_matrix(lt2)
 ```
 
 ```{r}
@@ -1830,13 +1599,13 @@ UpSet(m2)
 Seleccionar los datos que se quieran usar para WGCNA.
 
 ```{r}
-# DATOS PARA WGCNA 
-normalized_counts_df_filt_2 <- normalized_counts_df_filt
-
-counst_cluster_2 <- normalized_counts_df_filt_2[normalized_counts_df_filt_2$Gene %in% genes_cluster_2$Gene, ]
-
-directory <- "C:/Users/Sara/Desktop/Datos experimento/WGCNA/"  
-file_path <- paste0(directory, "normalized_counts_df_filt_3.csv")
-
-write.csv(normalized_counts_df_filt_2, file_path, row.names = FALSE)
+# # DATOS PARA WGCNA 
+# normalized_counts_df_filt_2 <- normalized_counts_df_filt
+# 
+# counst_cluster_2 <- normalized_counts_df_filt_2[normalized_counts_df_filt_2$Gene %in% genes_cluster_2$Gene, ]
+# 
+# directory <- "C:/Users/Sara/Desktop/Datos experimento/WGCNA/"  
+# file_path <- paste0(directory, "normalized_counts_df_filt_3.csv")
+# 
+# write.csv(normalized_counts_df_filt_2, file_path, row.names = FALSE)
 ```

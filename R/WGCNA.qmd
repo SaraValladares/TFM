@@ -32,7 +32,7 @@ Indicamos cual es el directorio de trabajo que es en el que se encuentran nuestr
 Leemos el archivo que vamos a usar en este análisis. Se trata de un archivo de counts normalizadas de los genes de A. thaliana que están diferencialmente expresados en las distintas muestras.
 
 ```{r}
-setwd("C:/Users/Sara/Desktop/Datos experimento/WGCNA/")
+setwd("C:/Users/Sara/Desktop/TFM")
 
 time=read.csv("normalized_counts_df_filt_3.csv")
 ```
@@ -70,7 +70,7 @@ datExpr= datExpr[gsg$goodSamples, gsg$goodGenes] }
 ## Subimos los metadatos del experimento
 
 ```{r}
-datTraits= read.csv("Metadata_todo.csv")
+datTraits= read.csv("Metadata_todo.csv", sep = ";")
 dim(datTraits) # comprobamos las dimensiones
 head(datTraits) 
 # Debemos obtener la respuesta de TRUE para saber que los metadatos que hemos aportado se alinean de manera correcta a los datos que hemos aportado anteriormente
@@ -169,7 +169,6 @@ Nos quedamos con un poder optimo según las graficas anteriores
 
 ```{r}
 set.seed(123)
-#allowWGCNAThreads(nThreads = 2)
 mergingThresh = 0.5 # Ajustamos este parametro para que sea más restrictivo a la hora de generar modulos
 net = blockwiseModules(datExpr, corType = "pearson", maxBlockSize = 4000, networkType = "signed hybrid", power = 9, minModuleSize = 30, mergeCutHeight = mergingThresh,      numericLabels = TRUE, saveTOMs = TRUE, pamRespectsDendro = FALSE, saveTOMFileBase = "allTOM")
 
@@ -217,7 +216,6 @@ plotDendroAndColors(net$dendrograms[[blocknumber]], colors = datColors, main = p
 ## Relaciones modulo-variable
 
 ```{r}
-# Choose a module assignment
  moduleColorsSt = moduleColorsAutomatic 
 # Definimos los numero de los genes y muestras
 nGenes = ncol(datExpr) 
@@ -263,8 +261,8 @@ selectModules = c("turquoise", "black", "blue", "red")
 
 ```{r}
 # Leemos el archivo que contiene la anotación de todos los genes de A . thaliana diferencialmente expresados. 
+setwd("C:/Users/Sara/Desktop/TFM")
 GeneAnnotation = read.csv(file.path("GeneAnnotation.csv"))
-GeneAnnotation = read.csv("zxc.csv") 
 
 # Nos quedamos con la descripción de los genes de nuestros módulos
 probes = names(datExpr)
@@ -676,20 +674,21 @@ readr::write_csv(ora_analysis_bp_df_C1, "ora_analysis_athaliana_res_cluster_1_en
 
 DT::datatable(ora_analysis_bp_df_C1, class = 'cell-border stripe', editable = TRUE,extensions = 'Buttons', options = list(dom = 'Bfrtip', buttons = c('copy', 'csv', 'excel', 'pdf', 'print')), filter = "top", rownames = F)
 
-barplot(ora_analysis_bp_simplify, 
-        drop = TRUE, 
-        showCategory = 10, 
-        title = "GO Biological Pathways - Grey Module",
-        font.size = 14)
+# barplot(ora_analysis_bp_simplify, 
+#         drop = TRUE, 
+#         showCategory = 10, 
+#         title = "GO Biological Pathways - Grey Module",
+#         font.size = 14)
 
 ```
 
 # Visualizar tendencias de los módulos
 
 ```{r}
+setwd("C:/Users/Sara/Desktop/TFM")
 data=read.csv("normalized_counts_df_filt_3.csv")
 
-metadata= read.csv("Metadata_todo.csv")
+metadata= read.csv("Metadata_todo.csv", sep = ";")
 
 # Summarise counts 
 trans_cts_mean <- data %>% 
@@ -731,7 +730,7 @@ trans_cts_cluster %>%
 
 ```{r}
 # Necesitamos los datos de HC K means.
-
+setwd("C:/Users/Sara/Desktop/TFM")
 genescluster1HcKmeans=read.csv("genes_cluster_1.csv")
 genescluster2HcKmeans=read.csv("genes_cluster_2.csv")
 genescluster3HcKmeans=read.csv("genes_cluster_3.csv")
@@ -763,115 +762,4 @@ list_to_matrix(lt) #
 library(UpSetR)
 m2 = make_comb_mat(lt, mode = "intersect") # elegimos el modo intersect
 UpSet(m2)
-```
-
-# Visualizar las conexiones de un módulo
-
-```{r}
-library(igraph)
-
-# Define the module to visualize
-module = c("black","red")
-
-# Extract genes in the selected module
-genesInModule = colnames(datExpr)[moduleColorsSt == module]
-
-# Compute the Topological Overlap Matrix (TOM)
-TOM = TOMsimilarityFromExpr(datExpr, power = 6)  # Use the same power as in module detection
-
-# Get indices of the genes in the selected module
-geneIndices = which(moduleColorsSt == module)
-
-# Extract the TOM values for these genes only
-TOMmodule = TOM[geneIndices, geneIndices]
-
-# Name rows and columns with gene names
-dimnames(TOMmodule) = list(genesInModule, genesInModule)
-
-# Compute gene connectivity (sum of TOM rows)
-connectivity = rowSums(TOMmodule)
-
-# Select the top 30 most connected genes for visualization
-numGenesToPlot = min(30, length(connectivity))  # Limit to 30 for clarity
-topGenes = names(sort(connectivity, decreasing = TRUE)[1:numGenesToPlot])
-
-# Subset the TOM for these genes
-TOMsubset = TOMmodule[topGenes, topGenes]
-
-# Convert TOM to an adjacency matrix (threshold-based)
-adjacencyThreshold = 0.2  # Adjust threshold for clarity
-adjMatrix = TOMsubset
-adjMatrix[adjMatrix < adjacencyThreshold] = 0  # Remove weak connections
-
-# Create an igraph object
-networkGraph = graph.adjacency(adjMatrix, mode = "undirected", weighted = TRUE, diag = FALSE)
-
-# Define node sizes based on connectivity (scale size)
-nodeSizes = connectivity[topGenes] / max(connectivity[topGenes]) * 10 + 5  # Scale for visualization
-
-# Highlight the top 5 hub genes (most connected genes)
-numHubs = 5
-hubGenes = names(sort(connectivity, decreasing = TRUE)[1:numHubs])
-
-# Assign colors (hub genes = red, others = module color)
-nodeColors = ifelse(topGenes %in% hubGenes, "blue", module)
-
-# Plot the network with labels and hub genes highlighted
-plot(networkGraph,
-     vertex.size = nodeSizes,  # Size based on connectivity
-     vertex.label = topGenes,  # Show gene names
-     vertex.label.cex = 0.8,   # Adjust label size
-     vertex.label.color = "black",  # Label color
-     vertex.color = nodeColors,  # Hub genes in red
-     edge.width = E(networkGraph)$weight * 10,  # Scale edge width by weight
-     layout = layout_with_fr(networkGraph),  # Use force-directed layout
-     main = paste("Network plot for module:", module))
-
-```
-
-# Extraer genes con mayor conectuvidad de cada módulo
-
-```{r}
-
-# Initialize list to store hub genes
-hubGenesList = list()
-
-# Compute TOM for all genes
-TOM = TOMsimilarityFromExpr(datExpr, power = 6)  # Use the same power as in module detection
-
-# Loop through each module
-modules = unique(moduleColorsSt)
-
-for (module in modules) {
-    # Get gene names in the module
-    genesInModule = colnames(datExpr)[moduleColorsSt == module]
-
-    # Get indices of these genes
-    geneIndices = which(moduleColorsSt == module)
-
-    # Extract TOM values for this module
-    TOMmodule = TOM[geneIndices, geneIndices]
-
-    # Compute connectivity
-    connectivity = rowSums(TOMmodule)
-
-    # Select the top 5 hub genes (change number if needed)
-    numHubs = min(5, length(connectivity))  # Avoid errors in small modules
-    hubGenes = names(sort(connectivity, decreasing = TRUE)[1:numHubs])
-
-    # Store in list
-    hubGenesList[[module]] = hubGenes
-}
-
-# Convert to data frame
-hubGenesDF = do.call(rbind, lapply(names(hubGenesList), function(mod) {
-    data.frame(Module = mod, HubGene = hubGenesList[[mod]])
-}))
-
-# Print results
-print(hubGenesDF)
-
-# Save to CSV
-write.csv(hubGenesDF, "Hub_Genes.csv", row.names = FALSE)
-
 ```
