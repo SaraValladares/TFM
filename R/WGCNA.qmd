@@ -70,6 +70,7 @@ datExpr= datExpr[gsg$goodSamples, gsg$goodGenes] }
 ## Subimos los metadatos del experimento
 
 ```{r}
+setwd("C:/Users/Sara/Desktop/TFM")
 datTraits= read.csv("Metadata_todo.csv", sep = ";")
 dim(datTraits) # comprobamos las dimensiones
 head(datTraits) 
@@ -324,7 +325,7 @@ genes_module_grey_list <- genes_module_grey %>% dplyr::select(Gene)
 
 ## GO Analisis de cada modulo
 
-```{r}
+```{r, results='hide'}
 hub <- AnnotationHub()
 
 query(hub, c("Arabidopsis thaliana", "orgdb"))
@@ -337,7 +338,7 @@ columns(a_thaliana)
 
 ```
 
-```{r}
+```{r, results='hide'}
 mart <- useMart(biomart="plants_mart", host="https://plants.ensembl.org")
 
 listdatasets <- listDatasets(mart)
@@ -729,8 +730,9 @@ trans_cts_cluster %>%
 # Comparativa con los datos de HC k means:
 
 ```{r}
+
+
 # Necesitamos los datos de HC K means.
-setwd("C:/Users/Sara/Desktop/TFM")
 genescluster1HcKmeans=read.csv("genes_cluster_1.csv")
 genescluster2HcKmeans=read.csv("genes_cluster_2.csv")
 genescluster3HcKmeans=read.csv("genes_cluster_3.csv")
@@ -740,26 +742,26 @@ genescluster6HcKmeans=read.csv("genes_cluster_6.csv")
 
 # Comparativa con los datos de HC k means:
 lt <- list(
-  counts1 = as.character(genescluster1HcKmeans$Gene),  
+  counts1 = as.character(genescluster1HcKmeans$Gene),
   M_azul = as.character(genes_module_blue$Probes),
-  counts2 = as.character(genescluster2HcKmeans$Gene),  
+  counts2 = as.character(genescluster2HcKmeans$Gene),
   M_negro = as.character(genes_module_black$Probes),
-  counts3 = as.character(genescluster3HcKmeans$Gene),  
+  counts3 = as.character(genescluster3HcKmeans$Gene),
   M_marron = as.character(genes_module_brown$Probes),
-  counts4 = as.character(genescluster4HcKmeans$Gene),  
+  counts4 = as.character(genescluster4HcKmeans$Gene),
   M_verde = as.character(genes_module_green$Probes),
-  counts5 = as.character(genescluster5HcKmeans$Gene),  
+  counts5 = as.character(genescluster5HcKmeans$Gene),
   M_gris = as.character(genes_module_grey$Probes),
-  counts6 = as.character(genescluster6HcKmeans$Gene),  
+  counts6 = as.character(genescluster6HcKmeans$Gene),
   M_rojo = as.character(genes_module_red$Probes),
   M_turquesa = as.character(genes_module_turquoise$Probes),
-  M_amarillo = as.character(genes_module_yellow$Probes) 
+  M_amarillo = as.character(genes_module_yellow$Probes)
 )
 list_to_matrix(lt) #
 
 
 # Generamos las gráficas
-library(UpSetR)
+
 m2 = make_comb_mat(lt, mode = "intersect") # elegimos el modo intersect
 UpSet(m2)
 ```

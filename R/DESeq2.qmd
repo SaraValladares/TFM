@@ -284,7 +284,7 @@ Perform Log Transformation (rlog): You apply the rlog transformation to your DES
 
 Order rlogMat Using MAD from normalized_counts: After performing the rlog, you order the rlogMat matrix by the MAD values from normalized_counts. This is where there might be some inconsistency, as the rlog values are typically used independently of the non-log transformed data.
 
-```{r echo=, message=FALSE, warning=FALSE}
+```{r, echo= FALSE, message=FALSE, warning=FALSE}
 
 #ddsHTSeq_filter$group  <- relevel(ddsHTSeq_filter$group , ref = ref)
 dds <- DESeq(ddset_filter) # <- normalize and calculate dispersion
@@ -662,7 +662,7 @@ columns(a_thaliana)
 
 ```
 
-```{r}
+```{r, results='hide'}
 
 mart <- useMart(biomart="plants_mart", host="https://plants.ensembl.org")
 
@@ -1166,7 +1166,7 @@ trans_cts_cluster %>%
 
 ## Gene ontology datos mahalanobis
 
-```{r}
+```{r, results='hide'}
 # Cuidado que se sobreescriben cosas con el anterior, luego hay que limpiar los datos!!!! Igual hay que hacerlo una funcion mejor :3
 
 mart <- useMart(biomart="plants_mart", host="https://plants.ensembl.org")
@@ -1559,7 +1559,7 @@ Para comparar los genes que hemos obtenido en los clusters de mahalanobis compar
 
 Creamos las listas necesarias para UpSet plot.
 
-```{r}
+```{r, results='hide'}
 # Lista que contiene los genes los clusters de Mahalanobis y counts.
 lt <- list(
   counts1 = as.character(genes_cluster_1_list$Gene),  

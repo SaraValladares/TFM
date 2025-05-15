@@ -12,6 +12,8 @@ En esta carpeta encontramos el archivo quality_aligment_counts.sh que contiene e
     Alineamiento contra el genoma de referencia
     Cuantificación de tránscritos
 
+En esta carpeta también encontramos un ejemplo de resultados de fastqc en una carpeta a parte.
+
 ## Carpeta "R"
 En esta carpeta se encuentra el código denerado en el lenguage de programación R en extensión .qmd. Esta extensión permite su mejor visualización y la posibilidad de convertir el código a HTML.
     Analisis previo de los datos: PCA, correlación de Pearson, detección de muestras atípicas
@@ -20,4 +22,6 @@ En esta carpeta se encuentra el código denerado en el lenguage de programación
     Analisis de enriquecimiento por GO
     Analisis con matriz de distancias de Mahalanobis
 
-En la carpeta encontramos también el archivo WGCNA.qmd en el que se ha reslizado un analisis de co-expresión génica usando la herramienta WGCNA.
+En la carpeta encontramos también el archivo WGCNA.qmd en el que se ha reslizado un analisis de co-expresión génica usando la herramienta WGCNA y el analisis de sobrerepresentacion ORA por GO de los módulos obtenidos. 
+
+También encontramos el archivo HTML con el código y los resultados obtenidos de ambos archivos.
